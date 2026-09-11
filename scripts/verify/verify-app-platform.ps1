@@ -1,5 +1,6 @@
 param(
-    [string]$Port = 'COM6'
+    [Parameter(Mandatory = $true)]
+    [string]$Port
 )
 
 $ErrorActionPreference = 'Stop'

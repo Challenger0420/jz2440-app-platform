@@ -22,7 +22,7 @@ same 51400-byte artifact as the existing `build/status-header-right` reference:
 ```text
 Structural rebuild SHA256: 8C2C20DB7E2C1217B385E4BADADDF1B9769C9C7C2EC96ED6FA26290EBE92EA35
 Reproducibility: exact across two clean builds
-Standard EXE real hardware E2E: PASS, 3 consecutive frames on COM6
+Standard EXE real hardware E2E: PASS, 3 consecutive frames on the locally selected USB serial port
 Codex Monitor: FINALIZED, FEATURE FREEZE
 ```
 

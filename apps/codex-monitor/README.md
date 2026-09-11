@@ -57,7 +57,7 @@ provider-only checks and does not open a board COM port.
 Final validated target: 51400 bytes, SHA256
 8C2C20DB7E2C1217B385E4BADADDF1B9769C9C7C2EC96ED6FA26290EBE92EA35.
 The standard EXE completed a real three-frame hardware request/response
-acceptance on COM6, including APPREADY, CQMREQ, real Provider, and CQM1
+acceptance on the locally selected USB serial port, including APPREADY, CQMREQ, real Provider, and CQM1
 responses. Board Controller start/stop and Qtopia recovery passed. Codex
 Monitor v1 is finalized and feature-frozen; future changes should be
 explicit bug fixes.
@@ -67,7 +67,7 @@ explicit bug fixes.
 The final validated target is 51400 bytes, SHA256
 `8C2C20DB7E2C1217B385E4BADADDF1B9769C9C7C2EC96ED6FA26290EBE92EA35`.
 The standard EXE completed the real three-frame hardware request/response
-acceptance on COM6, including Board Controller start/stop and Qtopia
+acceptance on the locally selected USB serial port, including Board Controller start/stop and Qtopia
 recovery. UART ownership, USB reconnect, and final visual confirmation are
 complete. Codex Monitor v1 is finalized and feature-frozen; board and
 Windows autostart remain disabled/deferred.

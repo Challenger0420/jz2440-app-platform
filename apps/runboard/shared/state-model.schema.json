@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/runboard/state-model.schema.json",
+  "title": "RunBoard State Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "server", "experiments", "codexUsage", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "source": { "enum": ["mock", "live"] },
+    "collectionError": { "type": ["string", "null"] },
+    "providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "server": { "enum": ["live", "mock", "unavailable", "error"] },
+        "codexUsage": { "enum": ["live", "mock", "unavailable", "error"] }
+      }
+    },
+    "freshness": { "$ref": "#/$defs/freshness" },
+    "server": { "$ref": "#/$defs/server" },
+    "experiments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/experiment" }
+    },
+    "codexUsage": { "$ref": "#/$defs/codexUsage" },
+    "updatedAt": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "cpuPercent", "ram", "gpu"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": ["string", "null"] },
+        "hostname": { "type": ["string", "null"] },
+        "status": { "enum": ["online", "offline", "degraded"] },
+        "cpuPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "ram": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["usedGiB", "totalGiB", "usedPercent"],
+          "properties": {
+            "usedGiB": { "type": ["number", "null"], "minimum": 0 },
+            "totalGiB": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+            "usedPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }
+          }
+        },
+        "loadAverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["one", "five", "fifteen"],
+          "properties": {
+            "one": { "type": ["number", "null"] },
+            "five": { "type": ["number", "null"] },
+            "fifteen": { "type": ["number", "null"] }
+          }
+        },
+        "uptimeSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "utilizationPercent", "memoryUsedGiB", "memoryTotalGiB"],
+          "properties": {
+            "name": { "type": ["string", "null"] },
+            "utilizationPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+            "memoryUsedGiB": { "type": ["number", "null"], "minimum": 0 },
+            "memoryTotalGiB": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+            "temperatureC": { "type": ["number", "null"], "minimum": -100, "maximum": 200 }
+          }
+        }
+      }
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "user", "status", "progress", "currentRound", "totalRound", "elapsedSeconds", "dataset", "seed", "metricName", "metricValue"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "user": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["RUNNING", "PAUSED", "ERROR", "COMPLETED", "UNKNOWN"] },
+        "progress": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "currentRound": { "type": ["integer", "null"], "minimum": 0 },
+        "totalRound": { "type": ["integer", "null"], "minimum": 1 },
+        "elapsedSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "dataset": { "type": ["string", "null"] },
+        "seed": { "type": ["integer", "null"] },
+        "metricName": { "type": ["string", "null"] },
+        "metricValue": { "type": ["number", "null"] }
+      }
+    },
+    "codexUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fiveHourPercent", "fiveHourReset", "weekPercent", "weekReset", "resetCards"],
+      "properties": {
+        "fiveHourPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "fiveHourReset": { "type": "string", "minLength": 1 },
+        "weekPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "weekReset": { "type": "string", "minLength": 1 },
+        "resetCards": { "type": ["integer", "null"], "minimum": 0 }
+        ,"updatedAt": { "type": ["string", "null"], "minLength": 1 }
+        ,"providerStatus": { "enum": ["live", "mock", "unavailable", "error"] }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/$defs/freshnessItem" },
+        "codexUsage": { "$ref": "#/$defs/freshnessItem" }
+      }
+    },
+    "freshnessItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["fresh", "stale", "offline", "error"] },
+        "updatedAt": { "type": ["string", "null"], "minLength": 1 },
+        "ageSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "consecutiveFailures": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

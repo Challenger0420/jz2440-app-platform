@@ -17,6 +17,7 @@ public sealed class BoardController
     private readonly StringBuilder pending = new StringBuilder();
 
     public BoardControllerMode Mode { get; private set; }
+    public string LastApplicationStopLine { get; private set; }
 
     // The caller may use this only after independently confirming that the
     // board is at the interactive serial shell. UNKNOWN remains fail-closed.
@@ -77,6 +78,7 @@ public sealed class BoardController
 
     public bool StartApplication(int timeoutMilliseconds)
     {
+        LastApplicationStopLine = null;
         if (Mode == BoardControllerMode.Unknown) Observe(750);
         if (Mode == BoardControllerMode.Application) return true;
         if (Mode != BoardControllerMode.Console) return false;
@@ -112,7 +114,9 @@ public sealed class BoardController
 
     public bool StopApplication(int timeoutMilliseconds)
     {
+        if (Mode == BoardControllerMode.Console) return true;
         if (Mode == BoardControllerMode.Unknown) Observe(750);
+        if (Mode == BoardControllerMode.Console) return true;
         if (Mode != BoardControllerMode.Application) return false;
         serial.Write(application.StopCommand);
         DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
@@ -121,7 +125,7 @@ public sealed class BoardController
         {
             IList<string> lines = ReadLines(serial.ReadAvailable());
             foreach (string line in lines)
-                if (application.IsStopped(line)) { stopped = true; break; }
+                if (application.IsStopped(line)) { LastApplicationStopLine = line; stopped = true; break; }
             if (stopped) break;
             Thread.Sleep(25);
         }

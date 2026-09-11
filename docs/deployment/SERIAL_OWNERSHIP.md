@@ -1,6 +1,6 @@
 # 串口归属与未来正式方案
 
-当前硬件链路：Windows Bridge → PL2303TA → JZ2440 UART0。扩展坞实例当前为 COM6，COM 号不稳定，因此 Bridge 默认按 `VID_067B/PID_2303` 自动发现，也保留 `--port COMx` override。
+当前硬件链路：Windows Bridge → USB serial adapter → JZ2440 UART0。COM 号不稳定，因此 Bridge 默认按兼容 USB serial adapter 的 VID/PID 自动发现，也保留 `--port COMx` override。
 
 板端已观测：kernel command line 为 `console=ttySAC0`；`/proc/tty/driver/serial` 的有效实例为 UART 0；用户空间 shell 和 direct backend 实测使用 `/dev/s3c2410_serial0`。`/dev/ttySAC*` 不存在，`/dev/ttyS0` 虽存在但 direct backend 的 `TCGETS` 配置失败，因此不能作为正式节点。未来正式 backend 应以实际可用节点和启动脚本为准，不仅凭名称猜测。
 

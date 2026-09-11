@@ -1,5 +1,6 @@
 param(
-    [string]$Port = 'COM6',
+    [Parameter(Mandatory = $true)]
+    [string]$Port,
     [string]$App = 'codex-monitor',
     [string]$Binary = 'build\status-header-right\codex-monitor-oabi',
     [switch]$Deploy

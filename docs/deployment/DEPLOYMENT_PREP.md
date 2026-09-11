@@ -11,9 +11,9 @@
 
 ## 已确认的串口映射
 
-USB-COM1 → JZ2440 UART0 → `/dev/s3c2410_serial0`。依据是：
+USB serial adapter → JZ2440 UART0 → `/dev/s3c2410_serial0`。依据是：
 
-1. USB-COM1 的 shell 在 COM6 上实际可交互；
+1. USB serial adapter 的 shell 已验证可交互；
 2. kernel command line 使用 `console=ttySAC0`；
 3. `/proc/tty/driver/serial` 只有 UART 0 具有有效 MMIO/IRQ 信息；
 4. `/dev/ttySAC*` 不存在；`/dev/ttyS0` 虽存在但 direct backend 的 `TCGETS` 配置失败；实际可打开并接收的 UART0 节点是 `/dev/s3c2410_serial0`。
@@ -39,7 +39,7 @@ direct backend 保存并恢复原始 termios，避免 `<CQMQUIT>` 后 shell 留�
 
 ## Windows Bridge
 
-显式 `--port COM6` 时使用用户指定端口；未指定时按 `USB\\VID_067B&PID_2303` 在 WMI PnP 信息中查找唯一 COM 端口。零个候选会在下一周期重试，多个候选会拒绝猜测并等待显式端口。SerialPort 打开、写入或 provider 失败均释放旧连接并在下一周期重试。
+显式 `--port COMx` 时使用用户指定端口；未指定时按 USB serial adapter 的 VID/PID 在 WMI PnP 信息中查找唯一 COM 端口。零个候选会在下一周期重试，多个候选会拒绝猜测并等待显式端口。SerialPort 打开、写入或 provider 失败均释放旧连接并在下一周期重试。
 
 Bridge 采用 request-driven 模式：只监听 `<CQMREQ|V=1>\\n`，收到一个有效请求后读取一次真实 quota 并回复一帧 CQM1；没有请求时不发送 quota。`--quit` 仅用于明确的用户退出操作。
 

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "server": {
+    "id": "SERVER-01",
+    "status": "online",
+    "cpuPercent": 8,
+    "ram": { "usedGiB": 3.2, "totalGiB": 16.0, "usedPercent": 20 },
+    "gpu": {
+      "name": "GPU-0",
+      "utilizationPercent": 0,
+      "memoryUsedGiB": 0.4,
+      "memoryTotalGiB": 16.0
+    }
+  },
+  "experiments": [],
+  "codexUsage": {
+    "fiveHourPercent": 92,
+    "fiveHourReset": "02h 14m",
+    "weekPercent": 76,
+    "weekReset": "3d 08h",
+    "resetCards": 3
+  },
+  "updatedAt": "2026-09-11 14:20:00"
+}

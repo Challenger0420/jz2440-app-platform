@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "server": {
+    "id": "SERVER-01",
+    "status": "online",
+    "cpuPercent": 91,
+    "ram": { "usedGiB": 14.2, "totalGiB": 16.0, "usedPercent": 89 },
+    "gpu": {
+      "name": "GPU-0",
+      "utilizationPercent": 98,
+      "memoryUsedGiB": 15.2,
+      "memoryTotalGiB": 16.0
+    }
+  },
+  "experiments": [
+    {
+      "name": "fedavg-cifar10",
+      "user": "USER-A",
+      "status": "RUNNING",
+      "progress": 68,
+      "currentRound": 68,
+      "totalRound": 100,
+      "elapsedSeconds": 8420,
+      "dataset": "CIFAR-10",
+      "seed": 42,
+      "metricName": "accuracy",
+      "metricValue": 84.7
+    },
+    {
+      "name": "fedprox-cifar100",
+      "user": "USER-B",
+      "status": "PAUSED",
+      "progress": 31,
+      "currentRound": 31,
+      "totalRound": 100,
+      "elapsedSeconds": 4010,
+      "dataset": "CIFAR-100",
+      "seed": 7,
+      "metricName": "loss",
+      "metricValue": 0.92
+    }
+  ],
+  "codexUsage": {
+    "fiveHourPercent": 82,
+    "fiveHourReset": "01h 48m",
+    "weekPercent": 64,
+    "weekReset": "2d 19h",
+    "resetCards": 3
+  },
+  "updatedAt": "2026-09-11 14:20:00"
+}

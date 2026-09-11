@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "server": {
+    "id": "SERVER-01",
+    "status": "online",
+    "cpuPercent": 18,
+    "ram": { "usedGiB": 5.1, "totalGiB": 16.0, "usedPercent": 32 },
+    "gpu": {
+      "name": "GPU-0",
+      "utilizationPercent": 4,
+      "memoryUsedGiB": 1.1,
+      "memoryTotalGiB": 16.0
+    }
+  },
+  "experiments": [
+    {
+      "name": "fedavg-mnist",
+      "user": "USER-A",
+      "status": "COMPLETED",
+      "progress": 100,
+      "currentRound": 50,
+      "totalRound": 50,
+      "elapsedSeconds": 3180,
+      "dataset": "MNIST",
+      "seed": 1,
+      "metricName": "accuracy",
+      "metricValue": 98.2
+    }
+  ],
+  "codexUsage": {
+    "fiveHourPercent": 92,
+    "fiveHourReset": "02h 14m",
+    "weekPercent": 76,
+    "weekReset": "3d 08h",
+    "resetCards": 3
+  },
+  "updatedAt": "2026-09-11 14:20:00"
+}

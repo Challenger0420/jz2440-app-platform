@@ -1,0 +1,28 @@
+{
+  "mode": "mock",
+  "server": {
+    "id": "SERVER-01",
+    "ssh": {
+      "enabled": false,
+      "host": "100.x.x.x",
+      "port": 22,
+      "user": "USER"
+    }
+  },
+  "sampling": {
+    "serverResourceSeconds": 10,
+    "experimentSeconds": 20,
+    "codexUsageSeconds": 300,
+    "uiRenderMilliseconds": 1000,
+    "offlineAfterFailures": 3
+  },
+  "codexUsage": {
+    "mode": "real",
+    "command": "build/bridge/CodexQuotaBridge.exe",
+    "timeoutSeconds": 20
+  },
+  "preview": {
+    "defaultScenario": "single",
+    "scale": 2
+  }
+}
