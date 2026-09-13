@@ -10,11 +10,36 @@ board target only parses and renders that state.
 python apps/runboard/host/runboard_state_cli.py --scenario idle
 python apps/runboard/host/runboard_state_cli.py --scenario single
 python apps/runboard/host/runboard_state_cli.py --scenario double
+python apps/runboard/host/runboard_state_cli.py --scenario matrix_single
+python apps/runboard/host/runboard_state_cli.py --scenario stale
+python apps/runboard/host/runboard_state_cli.py --scenario offline
+python apps/runboard/host/runboard_state_cli.py --scenario offline_after_last_good
+python apps/runboard/host/runboard_state_cli.py --scenario offline_cold_start
+python apps/runboard/host/runboard_state_cli.py --scenario longtext
+python apps/runboard/host/runboard_state_cli.py --live --dry-run
+python apps/runboard/host/runboard_state_cli.py --live --persistent-dry-run --cycles 3 --interval 10
 python apps/runboard/preview/runboard_preview.py --live
 ```
 
-`--live` reads the configured server and reuses the accepted Codex Monitor
-quota bridge in dry-run mode. It does not open a serial port from Python.
+`--live --dry-run` reads the configured server and the accepted Codex Monitor
+quota provider, validates the aggregated state, performs RB1 encode/decode and
+prints only a sanitized summary. It never opens a serial port.
+`--live --persistent-dry-run` performs several cycles with one persistent
+Provider/Aggregator instance, so last-good values and freshness age can be
+observed without serial I/O. Regular `--live` remains the one-shot diagnostic
+frame mode for compatibility/debugging; the Bridge's live mode uses the
+long-lived `--live-worker` protocol.
+
+`matrix_single` is a safe local fixture for a matrix job: `MATRIX 7/45`,
+`CELL 8/45`, and the current cell's `ROUND 37/50` are separate values. It does
+not query a server.
+
+`offline_after_last_good` models a server that is offline after a valid server
+snapshot: the board shows the server snapshot age (for example, `UPDATED 3M
+AGO`) while Codex quota remains independently fresh. `offline_cold_start`
+models an offline server with no last-good snapshot and therefore displays
+`UPDATED --` rather than fabricating an age. Neither fixture opens a serial
+port.
 
 ## Temporary board path
 
@@ -38,19 +63,38 @@ COM discovery/transport and streams RB1 frames:
 
 ```powershell
 build/runboard/RunBoardBridge.exe board start --console --scenario idle --duration 30 --port COMx
+build/runboard/RunBoardBridge.exe board start --console --scenario longtext --duration 30 --port COMx
 build/runboard/RunBoardBridge.exe board start --console --live --interval 10 --port COMx
 build/runboard/RunBoardBridge.exe board stop --application --port COMx
 ```
+
+The live Bridge starts one `runboard_state_cli.py --live-worker` process for
+the whole session and sends sequence requests to it. The worker creates the
+real providers and `RunBoardAggregator` once, then emits one complete RB1
+frame per request. Mock scenarios continue to use the one-shot CLI path.
 
 Use the actual local COM port only on the command line; no tracked script has a
 fixed COM default. The offline acceptance wrapper is plan-only by default:
 
 ```powershell
 scripts\deploy\accept-runboard.ps1 -Port COMx
+scripts\deploy\accept-runboard.ps1 -Port COMx -LiveDryRun
 scripts\deploy\accept-runboard.ps1 -Port COMx -Scenario single -Execute
 scripts\deploy\accept-runboard.ps1 -Port COMx -Rollback
 ```
 
-The wrapper stops on the first error, requires `APPSTOP|runboard|RC=0`, and does
-not perform automatic recovery or permanent deployment. LCD visual inspection,
-physical reconnect, and Qtopia state after a real stop remain on-site checks.
+`-LiveDryRun` reads the live providers and verifies RB1 without opening the port.
+The wrapper stops on the first error, requires `APPSTOP|runboard|RC=0` for an
+executed board flow, and does not perform automatic recovery or permanent
+deployment. LCD visual inspection, physical reconnect, and Qtopia state after
+a real stop remain on-site checks.
+
+## Final hardware regression record
+
+The final temporary live run passed the host-to-target path: APPREADY,
+continuous live RB1 frames, target length/CRC/parse/draw diagnostics, normal
+APPSTOP, shell/termios/Qtopia recovery, Codex Monitor regression, and one
+physical USB-serial reconnect. The user also confirmed the real Formal v6 live
+LCD. The final board state is clean Qtopia with no RunBoard or Codex Monitor
+process. The offline LCD page remains a separate visual gate for the current
+offline-mock pass.

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 public sealed class RunBoardAdapter : IApplicationAdapter
 {
@@ -156,14 +157,23 @@ public static class RunBoardBridgeProgram
                 string pending = controller.TakePendingApplicationData();
                 if (!String.IsNullOrEmpty(pending)) Console.WriteLine("initial application data={0}", pending.Trim());
                 int sequence = 0;
-                while (DateTime.UtcNow < deadline)
+                PersistentLiveFrameSource liveSource = null;
+                try
                 {
-                    string frame = ReadFrame(python, live, scenario, sequence++);
-                    serial.Write(frame);
-                    Console.WriteLine("RB1 sent seq={0} bytes={1}", sequence - 1, Encoding.ASCII.GetByteCount(frame));
-                    Thread.Sleep(interval * 1000);
-                    string incoming = serial.ReadAvailable();
-                    if (incoming.IndexOf("<APPSTOP|runboard|", StringComparison.Ordinal) >= 0) break;
+                    if (live) liveSource = new PersistentLiveFrameSource(python, StateScriptPath());
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        string frame = live ? liveSource.ReadFrame(sequence++) : ReadFrame(python, false, scenario, sequence++);
+                        serial.Write(frame);
+                        Console.WriteLine("RB1 sent seq={0} bytes={1}", sequence - 1, Encoding.ASCII.GetByteCount(frame));
+                        Thread.Sleep(interval * 1000);
+                        string incoming = serial.ReadAvailable();
+                        if (incoming.IndexOf("<APPSTOP|runboard|", StringComparison.Ordinal) >= 0) break;
+                    }
+                }
+                finally
+                {
+                    if (liveSource != null) liveSource.Dispose();
                 }
             }
         }
@@ -172,8 +182,7 @@ public static class RunBoardBridgeProgram
 
     private static string ReadFrame(string python, bool live, string scenario, int sequence)
     {
-        string script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..\\..\\apps\\runboard\\host\\runboard_state_cli.py");
-        script = Path.GetFullPath(script);
+        string script = StateScriptPath();
         List<string> arguments = new List<string> { "-u", script, live ? "--live" : "--scenario", live ? "" : scenario, "--sequence", sequence.ToString() };
         if (live) arguments.RemoveAt(3);
         ProcessStartInfo info = new ProcessStartInfo
@@ -205,6 +214,77 @@ public static class RunBoardBridgeProgram
         }
     }
 
+    private static string StateScriptPath()
+    {
+        string script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..\\..\\apps\\runboard\\host\\runboard_state_cli.py");
+        return Path.GetFullPath(script);
+    }
+
+    private sealed class PersistentLiveFrameSource : IDisposable
+    {
+        private readonly Process process;
+        private bool disposed;
+
+        public PersistentLiveFrameSource(string python, string script)
+        {
+            ProcessStartInfo info = new ProcessStartInfo
+            {
+                FileName = python,
+                Arguments = "-u \"" + script + "\" --live-worker",
+                WorkingDirectory = FindRoot(script),
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = false,
+                CreateNoWindow = true
+            };
+            process = Process.Start(info);
+            if (process == null) throw new InvalidOperationException("persistent state worker did not start");
+        }
+
+        public string ReadFrame(int sequence)
+        {
+            if (disposed) throw new ObjectDisposedException("PersistentLiveFrameSource");
+            if (process.HasExited) throw new InvalidOperationException("persistent state worker exited");
+            process.StandardInput.WriteLine(sequence.ToString());
+            process.StandardInput.Flush();
+            Task<string> read = Task.Factory.StartNew<string>(delegate { return process.StandardOutput.ReadLine(); });
+            if (!read.Wait(30000))
+            {
+                Terminate();
+                throw new TimeoutException("persistent state worker timed out");
+            }
+            string line = read.Result;
+            if (String.IsNullOrEmpty(line))
+                throw new InvalidOperationException("persistent state worker returned no RB1 frame");
+            if (!line.StartsWith("RB1|", StringComparison.Ordinal))
+                throw new InvalidOperationException("persistent state worker returned invalid frame");
+            return line + "\n";
+        }
+
+        private void Terminate()
+        {
+            try
+            {
+                if (!process.HasExited) process.Kill();
+            }
+            catch { }
+        }
+
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true;
+            try { process.StandardInput.Close(); } catch { }
+            try
+            {
+                if (!process.HasExited && !process.WaitForExit(2000)) Terminate();
+            }
+            catch { Terminate(); }
+            process.Dispose();
+        }
+    }
+
     private static string FindRoot(string script)
     {
         DirectoryInfo directory = new DirectoryInfo(Path.GetDirectoryName(script));
@@ -232,7 +312,7 @@ public static class RunBoardBridgeProgram
 
     private static void ValidateScenario(string scenario)
     {
-        if (scenario != "idle" && scenario != "single" && scenario != "double" && scenario != "completed" && scenario != "error")
+        if (scenario != "idle" && scenario != "single" && scenario != "double" && scenario != "matrix_single" && scenario != "completed" && scenario != "error" && scenario != "degraded" && scenario != "stale" && scenario != "stale_after_last_good" && scenario != "offline" && scenario != "offline_after_last_good" && scenario != "offline_cold_start" && scenario != "longtext")
             throw new ArgumentException("invalid scenario: " + scenario);
     }
     private static int ParsePositive(string value, string name) { int parsed = ParseNonNegative(value, name); if (parsed <= 0) throw new ArgumentException(name + " must be positive"); return parsed; }
@@ -250,7 +330,7 @@ public static class RunBoardBridgeProgram
         Console.WriteLine("RunBoard host bridge");
         Console.WriteLine("  board status [--port COMx]");
         Console.WriteLine("  board list [--console] [--port COMx]");
-        Console.WriteLine("  board start [--console] [--live|--scenario idle|single|double|completed|error] [--interval N] [--duration N]");
+        Console.WriteLine("  board start [--console] [--live|--scenario idle|single|double|matrix_single|completed|error|degraded|stale|stale_after_last_good|offline|offline_after_last_good|offline_cold_start|longtext] [--interval N] [--duration N]");
         Console.WriteLine("  board stop --application [--port COMx]");
         Console.WriteLine("  --serial-trace enables raw host serial diagnostics");
     }

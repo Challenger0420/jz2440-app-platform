@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from apps.runboard.collector.config import RunBoardConfig, SSHConfig
@@ -11,7 +12,7 @@ from apps.runboard.collector.parsers import (
     parse_nvidia_gpus,
     parse_ps,
 )
-from apps.runboard.collector.server_provider import PROBE_COMMAND, SSHServerProvider
+from apps.runboard.collector.server_provider import PROBE_COMMAND, SSHServerProvider, _matrix_metadata_command
 from apps.runboard.collector.ssh_transport import SSHError, SSHResult, SSHTransport
 from apps.runboard.shared.state_model import load_snapshot
 
@@ -64,6 +65,20 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(detected[0]["user"], "USER-A")
         self.assertEqual(detected[0]["currentRound"], 2)
         self.assertTrue(detected[0]["_gpuActive"])
+        self.assertIsNone(detected[0]["elapsedSeconds"])
+        self.assertEqual(detected[0]["elapsedSource"], "UNKNOWN")
+
+    def test_cell_metadata_start_time_overrides_matrix_runner_elapsed(self):
+        processes = {
+            100: ProcessInfo(100, 1, "USER-A", 9000, "Ss", "tmux new-session -s exp"),
+            101: ProcessInfo(101, 100, "USER-A", 8900, "R", "python train.py --work-dir /data/cells/job_a/clients/round_002/client_0"),
+        }
+        started = datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc)
+        now = started + timedelta(minutes=17, seconds=9)
+        metadata = {100: ExperimentMetadata(started_at=started, started_at_source="RELIABLE")}
+        detected = ExperimentDetector().detect(processes, [GPUProcess(101, "python", 2048)], metadata, now=now)
+        self.assertEqual(detected[0]["elapsedSeconds"], 1029)
+        self.assertEqual(detected[0]["elapsedSource"], "RELIABLE")
 
     def test_cpu_only_experiment_is_detected_without_gpu_pid(self):
         processes = {
@@ -100,6 +115,13 @@ class CollectorTests(unittest.TestCase):
     def test_live_probe_has_no_mutating_commands(self):
         self.assertNotRegex(PROBE_COMMAND, r"\b(kill|pkill|rm|mv|chmod|systemctl|tee|touch)\b")
         self.assertNotIn(">", PROBE_COMMAND.replace("2>&1", ""))
+
+    def test_matrix_metadata_probe_is_read_only_and_uses_explicit_files(self):
+        command = _matrix_metadata_command({123: "/private/formal/cells/cell_008"})
+        self.assertIn("formal_matrix_plan.json", command)
+        self.assertIn("completion_manifest.json", command)
+        self.assertIn("__RUNBOARD_MATRIX_PLAN__", command)
+        self.assertNotRegex(command, r"\b(kill|pkill|mv|chmod|systemctl|tee|touch)\b")
 
     def test_parse_ps_preserves_command_line(self):
         parsed = parse_ps(" 101 100 USER-A 12 R python train.py --work-dir /data/job")

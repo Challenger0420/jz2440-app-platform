@@ -8,6 +8,21 @@
 python apps\runboard\preview\runboard_preview.py --scenario single
 ```
 
+离线状态页和其他本地场景：
+
+```powershell
+python apps\runboard\preview\runboard_preview.py --scenario offline
+python apps\runboard\preview\runboard_preview.py --scenario offline_after_last_good
+python apps\runboard\preview\runboard_preview.py --scenario offline_cold_start
+python apps\runboard\preview\runboard_preview.py --scenario stale
+python apps\runboard\preview\runboard_preview.py --scenario longtext
+```
+
+`OFFLINE` 会清空服务器资源和实验主体，显示 `SERVER OFFLINE` / `NO LIVE
+SERVER DATA`；Codex quota 仍按自己的 freshness 独立显示。未知额度使用 `--%`，
+不会伪装成 `0%`。服务器离线且存在最后一次有效快照时，`UPDATED` 使用服务器
+快照年龄；冷启动离线时显示 `UPDATED --`。Codex reset 使用绝对时间格式。
+
 读取一次真实服务器快照并打开 Live Preview：
 
 ```powershell
@@ -27,6 +42,7 @@ RunBoard 的 compact board frame encoder/decoder 和 MemoryTransport 只在本�
 - `IDLE`：0 个实验，服务器空闲。
 - `SINGLE`：主实验 + Codex Usage。
 - `DOUBLE`：主实验 + 第二实验，底部自动替换为 Second Experiment。
+- `MATRIX_SINGLE`：矩阵 job、已完成 cell、当前 cell 与当前 cell round 分层显示。
 - `COMPLETED` / `ERROR`：额外状态检查。
 
 本 Preview 使用标准库 Tkinter，不要求安装第三方 UI 框架。

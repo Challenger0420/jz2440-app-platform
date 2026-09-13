@@ -30,19 +30,12 @@ class CodexUsageResult:
 
 
 def _reset_label(epoch: Any, now: datetime) -> str:
-    if not isinstance(epoch, (int, float)) or isinstance(epoch, bool):
+    if not isinstance(epoch, (int, float)) or isinstance(epoch, bool) or epoch <= 0:
         return "unknown"
-    delta = max(0, int(epoch - now.timestamp()))
-    if delta == 0:
-        return "now"
-    days, remainder = divmod(delta, 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes = remainder // 60
-    if days:
-        return "{}d {:02d}h".format(days, hours)
-    if hours:
-        return "{}h {:02d}m".format(hours, minutes)
-    return "{}m".format(max(1, minutes))
+    target = datetime.fromtimestamp(epoch, tz=now.tzinfo)
+    if target.date() == now.date():
+        return target.strftime("%H:%M")
+    return "{}/{} {:02d}:{:02d}".format(target.month, target.day, target.hour, target.minute)
 
 
 def _window(rate_limits: Dict[str, Any], duration: int) -> Optional[Dict[str, Any]]:

@@ -1,6 +1,7 @@
 """Process-to-experiment grouping with a GPU-first, parent-aware policy."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import PurePosixPath
 import re
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -18,6 +19,9 @@ class ExperimentMetadata:
     metric_name: Optional[str] = None
     metric_value: Optional[float] = None
     error: bool = False
+    progress_scope: Optional[str] = None
+    started_at: Optional[datetime] = None
+    started_at_source: Optional[str] = None
 
 
 def _argument(command: str, key: str) -> Optional[str]:
@@ -76,7 +80,8 @@ class ExperimentDetector:
 
     def detect(self, processes: Dict[int, ProcessInfo],
                gpu_processes: Iterable[GPUProcess],
-               metadata: Optional[Dict[int, ExperimentMetadata]] = None) -> List[Dict[str, object]]:
+               metadata: Optional[Dict[int, ExperimentMetadata]] = None,
+               now: Optional[datetime] = None) -> List[Dict[str, object]]:
         metadata = metadata or {}
         gpu_by_pid = {item.pid: item for item in gpu_processes}
         candidate_pids = set(gpu_by_pid)
@@ -113,6 +118,11 @@ class ExperimentDetector:
             progress = None
             if current_round is not None and total_round and total_round > 0:
                 progress = min(100.0, 100.0 * current_round / total_round)
+            elapsed_seconds = None
+            elapsed_source = "UNKNOWN"
+            if meta.started_at is not None and now is not None:
+                elapsed_seconds = max(0, int((now - meta.started_at).total_seconds()))
+                elapsed_source = meta.started_at_source or "INFERRED"
             gpu_memory = sum(gpu_by_pid[pid].memory_used_mib for pid in member_pids if pid in gpu_by_pid)
             members_with_gpu = [processes[pid] for pid in member_pids if pid in processes and pid in gpu_by_pid]
             item: Dict[str, object] = {
@@ -122,11 +132,13 @@ class ExperimentDetector:
                 "progress": progress,
                 "currentRound": current_round,
                 "totalRound": total_round,
-                "elapsedSeconds": root_process.elapsed_seconds,
+                "elapsedSeconds": elapsed_seconds,
+                "elapsedSource": elapsed_source,
                 "dataset": meta.dataset,
                 "seed": meta.seed,
                 "metricName": meta.metric_name,
                 "metricValue": meta.metric_value,
+                "progressScope": meta.progress_scope or "current-cell-round",
                 "_rootPid": root,
                 "_gpuActive": bool(members_with_gpu),
                 "_gpuMemoryMiB": gpu_memory,

@@ -24,5 +24,8 @@
   "preview": {
     "defaultScenario": "single",
     "scale": 2
+  },
+  "jobDisplayNames": {
+    "example-matrix-v1": "Example Matrix Job"
   }
 }

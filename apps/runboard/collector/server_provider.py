@@ -7,10 +7,11 @@ from pathlib import Path, PurePosixPath
 import shlex
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from apps.runboard.shared.state_model import Snapshot, load_snapshot, validate_snapshot
+from apps.runboard.shared.state_model import Snapshot, validate_snapshot
 
 from .config import RunBoardConfig, load_live_config
 from .experiment_detector import ExperimentDetector, ExperimentMetadata, _root_pid, _work_dir
+from .matrix_metadata import matrix_root_from_cell, parse_matrix_observations
 from .parsers import (
     ProcessInfo,
     parse_cpu_percent,
@@ -26,6 +27,18 @@ from .ssh_transport import SSHError, SSHTransport
 
 
 LOGGER = logging.getLogger("runboard.live")
+
+
+def _parse_timestamp(value: object) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return parsed.astimezone()
 
 PROBE_COMMAND = r"""
 printf '%s\n' '__RUNBOARD_IDENTITY__'
@@ -72,6 +85,29 @@ def _metadata_command(cells: Dict[int, str]) -> str:
     return "\n".join(chunks) or "printf '%s\\n' '__RUNBOARD_META_EMPTY__'"
 
 
+def _matrix_metadata_command(cells: Dict[int, str]) -> str:
+    """Emit marked matrix JSON using only ``cat``/``find`` read operations."""
+    roots: Dict[str, int] = {}
+    for root_pid, cell in sorted(cells.items()):
+        matrix_root = matrix_root_from_cell(cell)
+        if matrix_root and matrix_root not in roots:
+            roots[matrix_root] = root_pid
+    chunks: List[str] = []
+    for matrix_root, root_pid in sorted(roots.items(), key=lambda item: item[1]):
+        quoted = shlex.quote(matrix_root)
+        chunks.append(
+            "printf '__RUNBOARD_MATRIX_PLAN__ %s\\n' '{}'; "
+            "cat {}/formal_matrix_plan.json 2>/dev/null || true".format(root_pid, quoted)
+        )
+        chunks.append(
+            "for manifest in {}/cells/*/completion_manifest.json; do "
+            "if [ -f \"$manifest\" ]; then "
+            "printf '__RUNBOARD_MATRIX_COMPLETION__ %s\\n' '{}'; cat \"$manifest\"; "
+            "fi; done".format(quoted, root_pid)
+        )
+    return "\n".join(chunks) or "printf '%s\\n' '__RUNBOARD_MATRIX_EMPTY__'"
+
+
 def _cwd_command(pids: Iterable[int]) -> str:
     values = [str(pid) for pid in sorted(set(pids)) if int(pid) > 0]
     if not values:
@@ -106,6 +142,20 @@ def _parse_metadata(text: str, logger: logging.Logger) -> Tuple[Dict[int, Experi
         previous = metadata.get(pid, ExperimentMetadata())
         if kind == "plan":
             protocol = value.get("protocol") if isinstance(value, dict) else {}
+            explicit_started = None
+            explicit_started_source = None
+            if isinstance(value, dict):
+                for key in ("startedAt", "started_at", "startTime", "start_time"):
+                    explicit_started = _parse_timestamp(value.get(key))
+                    if explicit_started is not None:
+                        explicit_started_source = "RELIABLE"
+                        break
+                if explicit_started is None:
+                    for key in ("createdAt", "created_at"):
+                        explicit_started = _parse_timestamp(value.get(key))
+                        if explicit_started is not None:
+                            explicit_started_source = "INFERRED"
+                            break
             metadata[pid] = ExperimentMetadata(
                 name=value.get("run_id") or previous.name,
                 dataset=value.get("dataset") or previous.dataset,
@@ -115,6 +165,8 @@ def _parse_metadata(text: str, logger: logging.Logger) -> Tuple[Dict[int, Experi
                 metric_name=previous.metric_name,
                 metric_value=previous.metric_value,
                 error=previous.error,
+                started_at=explicit_started or previous.started_at,
+                started_at_source=explicit_started_source or previous.started_at_source,
             )
         elif kind == "latest":
             round_value = value.get("round") if isinstance(value, dict) else None
@@ -127,6 +179,8 @@ def _parse_metadata(text: str, logger: logging.Logger) -> Tuple[Dict[int, Experi
                 metric_name=previous.metric_name,
                 metric_value=previous.metric_value,
                 error=previous.error,
+                started_at=previous.started_at,
+                started_at_source=previous.started_at_source,
             )
 
     for line in text.splitlines():
@@ -154,6 +208,8 @@ def _parse_metadata(text: str, logger: logging.Logger) -> Tuple[Dict[int, Experi
             metric_name=previous.metric_name,
             metric_value=previous.metric_value,
             error=has_error,
+            started_at=previous.started_at,
+            started_at_source=previous.started_at_source,
         )
     return metadata, errors
 
@@ -189,10 +245,11 @@ def _aggregate_gpu(gpus: List[object]) -> Dict[str, Optional[float]]:
 
 
 def _codex_usage(root: Path) -> Dict[str, object]:
-    try:
-        return load_snapshot(root / "apps" / "runboard" / "shared" / "mocks" / "idle.json").data["codexUsage"]
-    except (OSError, ValueError, KeyError):
-        return {"fiveHourPercent": 0, "fiveHourReset": "unknown", "weekPercent": 0, "weekReset": "unknown", "resetCards": 0}
+    # Quota is intentionally not fabricated in the Server Provider.  The
+    # separate Codex provider owns this data; until it succeeds, preserve
+    # unknown semantics instead of showing a misleading 0%.
+    return {"fiveHourPercent": None, "fiveHourReset": "unknown",
+            "weekPercent": None, "weekReset": "unknown", "resetCards": None}
 
 
 def make_offline_snapshot(root: Path, error: str,
@@ -254,7 +311,8 @@ class SSHServerProvider:
         panes = parse_tmux_panes(sections.get("RUNBOARD_TMUX", ""))
         del panes  # Parsed to keep the observation boundary explicit; detector uses PPID first.
         detector = ExperimentDetector()
-        preliminary = detector.detect(processes, gpu_processes)
+        observation_time = _parse_timestamp(now) or datetime.now().astimezone()
+        preliminary = detector.detect(processes, gpu_processes, now=observation_time)
         roots = [int(item["_rootPid"]) for item in preliminary]
 
         cwd_result = self.transport.run(_cwd_command(roots)).stdout if roots else ""
@@ -269,6 +327,12 @@ class SSHServerProvider:
 
         cells = _metadata_cells(processes, roots)
         metadata_text = self.transport.run(_metadata_command(cells)).stdout if cells else ""
+        matrix_text = self.transport.run(_matrix_metadata_command(cells)).stdout if cells else ""
+        matrix_by_root = parse_matrix_observations(
+            matrix_text,
+            {root_pid: PurePosixPath(cell).name for root_pid, cell in cells.items()},
+            self.config.job_display_names,
+        )
         metadata, log_errors = _parse_metadata(metadata_text, self.logger)
         for root_pid, has_error in log_errors.items():
             previous = metadata.get(root_pid, ExperimentMetadata())
@@ -276,12 +340,27 @@ class SSHServerProvider:
                 name=previous.name, dataset=previous.dataset, seed=previous.seed,
                 total_round=previous.total_round, current_round=previous.current_round,
                 metric_name=previous.metric_name, metric_value=previous.metric_value, error=has_error,
+                started_at=previous.started_at, started_at_source=previous.started_at_source,
             )
-        experiments = detector.detect(processes, gpu_processes, metadata)
+        experiments = detector.detect(processes, gpu_processes, metadata, now=observation_time)
         clean_experiments = [
             {key: value for key, value in item.items() if not key.startswith("_")}
             for item in experiments
         ]
+        job = None
+        if experiments:
+            matrix = matrix_by_root.get(int(experiments[0]["_rootPid"]))
+            if matrix:
+                job = {
+                    "name": matrix.job_name,
+                    "matrixCompleted": matrix.matrix_completed,
+                    "matrixTotal": matrix.matrix_total,
+                    "currentCell": matrix.current_cell,
+                    "method": matrix.method,
+                    "matrixProgressPercent": matrix.matrix_progress_percent,
+                    "progressScope": "matrix-cells",
+                }
+                job = {key: value for key, value in job.items() if value is not None}
 
         meminfo = parse_meminfo(sections.get("RUNBOARD_MEMINFO", ""))
         total_kib = meminfo.get("MemTotal")
@@ -305,14 +384,16 @@ class SSHServerProvider:
             errors.append("RAM unavailable")
         if not gpus and "NVIDIA-SMI" in gpu_text:
             errors.append("nvidia-smi unavailable")
-        return validate_snapshot({
+        state = {
             "schemaVersion": 1,
             "source": "live",
             "collectionError": "; ".join(errors) or None,
             "server": {
                 "id": self.config.server_id,
                 "displayName": self.config.display_name,
-                "hostname": sections.get("RUNBOARD_IDENTITY", "").strip() or None,
+                # The public state contract uses the configured display name;
+                # never propagate the remote machine hostname into RB1/Preview.
+                "hostname": None,
                 "status": "degraded" if degraded else "online",
                 "cpuPercent": cpu,
                 "ram": {
@@ -327,7 +408,10 @@ class SSHServerProvider:
             "experiments": clean_experiments,
             "codexUsage": _codex_usage(self.root),
             "updatedAt": now,
-        })
+        }
+        if job is not None:
+            state["job"] = job
+        return validate_snapshot(state)
 
     def _offline_snapshot(self, now: str, error: str) -> Dict[str, object]:
         return {

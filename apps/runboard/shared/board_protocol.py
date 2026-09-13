@@ -9,6 +9,7 @@ parser only needs line framing, integer parsing and a small field table.
 """
 
 from binascii import crc_hqx
+from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import quote, unquote
 
@@ -57,6 +58,71 @@ def _put(fields: List[str], key: str, value: Any) -> None:
     fields.append("{}={}".format(key, _value(value)))
 
 
+def _public_collection_error(value: Any) -> Optional[str]:
+    """Reduce provider failures to safe board-visible categories.
+
+    Provider exceptions may contain SSH argv, local key paths, remote paths,
+    usernames, or other diagnostics useful to the host but never appropriate
+    for an RB1 frame.  The host keeps the detailed error in its local logger;
+    the board receives only a stable, non-sensitive category.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if "codex" in text:
+        return "codex usage unavailable"
+    if "cpu unavailable" in text or "ram unavailable" in text or "nvidia-smi" in text:
+        return "server resources unavailable"
+    if "server" in text or "ssh" in text or "transport" in text:
+        return "server provider unavailable"
+    return "provider error"
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return parsed.astimezone()
+
+
+def _display_clock(value: Any) -> Optional[str]:
+    parsed = _parse_timestamp(value)
+    return parsed.strftime("%H:%M") if parsed is not None else None
+
+
+def _updated_age_seconds(snapshot: Dict[str, Any]) -> Optional[int]:
+    freshness = snapshot.get("freshness") or {}
+    server_freshness = freshness.get("server") or {}
+    server_age = server_freshness.get("ageSeconds")
+    server_offline = (
+        server_freshness.get("state") == "offline"
+        or (snapshot.get("server") or {}).get("status") == "offline"
+    )
+    if server_offline:
+        if isinstance(server_age, (int, float)) and not isinstance(server_age, bool) and server_age >= 0:
+            return int(server_age)
+        return None
+    ages = []
+    for provider in ("server", "codexUsage"):
+        item = freshness.get(provider) or {}
+        age = item.get("ageSeconds")
+        if isinstance(age, (int, float)) and not isinstance(age, bool) and age >= 0:
+            ages.append(int(age))
+    if ages:
+        return max(ages)
+    updated = _parse_timestamp(snapshot.get("updatedAt"))
+    if updated is None:
+        return None
+    return max(0, int((datetime.now().astimezone() - updated).total_seconds()))
+
+
 def _experiment_fields(index: int, experiment: Dict[str, Any]) -> Iterable[str]:
     prefix = "E{}".format(index)
     mapping = {
@@ -84,8 +150,17 @@ def encode_state(data: Dict[str, Any], sequence: int = 0) -> bytes:
     _put(fields, "V", 1)
     _put(fields, "SEQ", sequence)
     _put(fields, "UT", snapshot.get("updatedAt"))
+    _put(fields, "CT", _display_clock(snapshot.get("updatedAt")))
+    _put(fields, "UA", _updated_age_seconds(snapshot))
     _put(fields, "SF", (freshness.get("server") or {}).get("state", "fresh"))
     _put(fields, "CF", (freshness.get("codexUsage") or {}).get("state", "fresh"))
+    job = snapshot.get("job")
+    if isinstance(job, dict) and isinstance(job.get("matrixTotal"), int) and job.get("matrixTotal", 0) > 0:
+        _put(fields, "JN", job.get("name"))
+        _put(fields, "MC", job.get("matrixCompleted"))
+        _put(fields, "MT", job.get("matrixTotal"))
+        _put(fields, "CI", job.get("currentCell"))
+        _put(fields, "JM", job.get("method"))
     _put(fields, "SI", server.get("id"))
     _put(fields, "SD", server.get("displayName"))
     _put(fields, "SS", server.get("status"))
@@ -112,7 +187,7 @@ def encode_state(data: Dict[str, Any], sequence: int = 0) -> bytes:
     _put(fields, "CWR", usage.get("weekReset"))
     _put(fields, "CRC", usage.get("resetCards"))
     _put(fields, "CPS", usage.get("providerStatus"))
-    _put(fields, "ERR", snapshot.get("collectionError"))
+    _put(fields, "ERR", _public_collection_error(snapshot.get("collectionError")))
     payload = "|".join(fields).encode("ascii")
     checksum = crc_hqx(payload, 0xFFFF)
     return b"RB1|L=" + str(len(payload)).encode("ascii") + b"|" + payload + b"|CRC=" + "{:04X}".format(checksum).encode("ascii") + b"\n"
@@ -178,19 +253,37 @@ def decode_frame(frame: bytes) -> Dict[str, Any]:
         "server": {"state": _field(fields, "SF", "fresh") or "fresh"},
         "codexUsage": {"state": _field(fields, "CF", "fresh") or "fresh"},
     }
+    matrix_keys = ("JN", "MC", "MT", "CI", "JM")
+    matrix_job = None
+    if any(key in fields for key in matrix_keys):
+        matrix_completed = _number(fields, "MC", integer=True)
+        matrix_total = _number(fields, "MT", integer=True)
+        matrix_job = {
+            "name": _field(fields, "JN"),
+            "matrixCompleted": matrix_completed,
+            "matrixTotal": matrix_total,
+            "currentCell": _number(fields, "CI", integer=True),
+            "method": _field(fields, "JM"),
+            "matrixProgressPercent": (100.0 * matrix_completed / matrix_total
+                                       if matrix_completed is not None and matrix_total else None),
+            "progressScope": "matrix-cells",
+        }
+        matrix_job = {key: value for key, value in matrix_job.items() if value is not None}
     data = {
         "schemaVersion": 1, "source": "live", "collectionError": _field(fields, "ERR"),
         "providers": {"server": "live", "codexUsage": _field(fields, "CPS", "unavailable") or "unavailable"},
         "sequence": _number(fields, "SEQ", integer=True),
         "freshness": freshness, "server": server, "experiments": experiments,
         "codexUsage": {
-            "fiveHourPercent": _number(fields, "C5") or 0, "fiveHourReset": _field(fields, "C5R", "unknown") or "unknown",
-            "weekPercent": _number(fields, "CW") or 0, "weekReset": _field(fields, "CWR", "unknown") or "unknown",
+            "fiveHourPercent": _number(fields, "C5"), "fiveHourReset": _field(fields, "C5R", "unknown") or "unknown",
+            "weekPercent": _number(fields, "CW"), "weekReset": _field(fields, "CWR", "unknown") or "unknown",
             "resetCards": _number(fields, "CRC", integer=True),
             "providerStatus": _field(fields, "CPS", "unavailable") or "unavailable",
         },
         "updatedAt": _field(fields, "UT", "unknown") or "unknown",
     }
+    if matrix_job is not None:
+        data["job"] = matrix_job
     return validate_snapshot(data).data
 
 

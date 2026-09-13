@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "server": {
     "id": "SERVER-01",
-    "status": "degraded",
-    "cpuPercent": 72,
-    "ram": { "usedGiB": 12.4, "totalGiB": 16.0, "usedPercent": 78 },
+    "status": "online",
+    "cpuPercent": 18,
+    "ram": { "usedGiB": 5.1, "totalGiB": 16.0, "usedPercent": 32 },
     "gpu": {
       "name": "GPU-0",
-      "utilizationPercent": 12,
-      "memoryUsedGiB": 8.3,
+      "utilizationPercent": 4,
+      "memoryUsedGiB": 1.1,
       "memoryTotalGiB": 16.0
     }
   },
@@ -29,10 +29,14 @@
   ],
   "codexUsage": {
     "fiveHourPercent": 82,
-    "fiveHourReset": "01h 48m",
+    "fiveHourReset": "15:27",
     "weekPercent": 64,
-    "weekReset": "2d 19h",
+    "weekReset": "9/19 16:09",
     "resetCards": 3
+  },
+  "freshness": {
+    "server": { "state": "fresh", "ageSeconds": 0 },
+    "codexUsage": { "state": "fresh", "ageSeconds": 0 }
   },
   "updatedAt": "2026-09-11 14:20:00"
 }

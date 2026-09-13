@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "source": "mock",
+  "server": {
+    "id": "SERVER-01",
+    "status": "offline",
+    "cpuPercent": null,
+    "ram": { "usedGiB": null, "totalGiB": null, "usedPercent": null },
+    "gpu": { "name": null, "utilizationPercent": null, "memoryUsedGiB": null, "memoryTotalGiB": null }
+  },
+  "experiments": [],
+  "codexUsage": { "fiveHourPercent": 82, "fiveHourReset": "15:27", "weekPercent": 64, "weekReset": "9/19 16:09", "resetCards": 3 },
+  "freshness": {
+    "server": { "state": "offline", "ageSeconds": 180, "consecutiveFailures": 3 },
+    "codexUsage": { "state": "fresh", "ageSeconds": 2, "consecutiveFailures": 0 }
+  },
+  "updatedAt": "2026-09-12 10:30:00"
+}

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "source": "mock",
+  "server": {
+    "id": "SERVER-01",
+    "displayName": "SERVER-01",
+    "status": "online",
+    "cpuPercent": 5.58,
+    "ram": { "usedGiB": 1.9, "totalGiB": 16.0, "usedPercent": 11.89 },
+    "gpu": {
+      "name": "GPU-0",
+      "utilizationPercent": 17.25,
+      "memoryUsedGiB": 9.82,
+      "memoryTotalGiB": 15.99,
+      "temperatureC": 42
+    }
+  },
+  "job": {
+    "name": "Prompt Horizontal Formal V6",
+    "matrixCompleted": 7,
+    "matrixTotal": 45,
+    "currentCell": 8,
+    "method": "PromptFL-style-CD",
+    "matrixProgressPercent": 15.5555555556,
+    "progressScope": "matrix-cells"
+  },
+  "experiments": [
+    {
+      "name": "cell-008",
+      "user": "USER-A",
+      "status": "RUNNING",
+      "progress": 74,
+      "currentRound": 37,
+      "totalRound": 50,
+      "elapsedSeconds": 54000,
+      "dataset": "WHUCD",
+      "seed": 1,
+      "metricName": null,
+      "metricValue": null,
+      "progressScope": "current-cell-round"
+    }
+  ],
+  "codexUsage": {
+    "fiveHourPercent": 11,
+    "fiveHourReset": "21:09",
+    "weekPercent": 35,
+    "weekReset": "9/12 11:20",
+    "resetCards": 3
+  },
+  "freshness": {
+    "server": { "state": "fresh", "ageSeconds": 180 },
+    "codexUsage": { "state": "fresh", "ageSeconds": 180 }
+  },
+  "updatedAt": "2026-09-12 12:00:00"
+}

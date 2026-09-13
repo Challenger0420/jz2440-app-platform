@@ -18,6 +18,7 @@
       }
     },
     "freshness": { "$ref": "#/$defs/freshness" },
+    "job": { "$ref": "#/$defs/job" },
     "server": { "$ref": "#/$defs/server" },
     "experiments": {
       "type": "array",
@@ -87,7 +88,22 @@
         "dataset": { "type": ["string", "null"] },
         "seed": { "type": ["integer", "null"] },
         "metricName": { "type": ["string", "null"] },
-        "metricValue": { "type": ["number", "null"] }
+        "metricValue": { "type": ["number", "null"] },
+        "progressScope": { "type": ["string", "null"], "minLength": 1 },
+        "elapsedSource": { "enum": ["RELIABLE", "INFERRED", "UNKNOWN", null] }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": ["string", "null"], "minLength": 1 },
+        "matrixCompleted": { "type": ["integer", "null"], "minimum": 0 },
+        "matrixTotal": { "type": ["integer", "null"], "minimum": 1 },
+        "currentCell": { "type": ["integer", "null"], "minimum": 1 },
+        "method": { "type": ["string", "null"], "minLength": 1 },
+        "matrixProgressPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "progressScope": { "type": ["string", "null"], "minLength": 1 }
       }
     },
     "codexUsage": {
@@ -95,9 +111,9 @@
       "additionalProperties": false,
       "required": ["fiveHourPercent", "fiveHourReset", "weekPercent", "weekReset", "resetCards"],
       "properties": {
-        "fiveHourPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "fiveHourPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
         "fiveHourReset": { "type": "string", "minLength": 1 },
-        "weekPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "weekPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
         "weekReset": { "type": "string", "minLength": 1 },
         "resetCards": { "type": ["integer", "null"], "minimum": 0 }
         ,"updatedAt": { "type": ["string", "null"], "minLength": 1 }

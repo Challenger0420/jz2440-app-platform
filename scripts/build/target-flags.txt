@@ -8,6 +8,7 @@
 -Os
 -Wall
 -Wextra
+-Werror
 -std=c99
 -ffreestanding
 -fno-builtin

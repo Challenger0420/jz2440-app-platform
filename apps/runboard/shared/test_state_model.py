@@ -12,6 +12,15 @@ class StateModelTests(unittest.TestCase):
         self.assertEqual(load_snapshot(MOCKS / "idle.json").layout_mode, "idle")
         self.assertEqual(load_snapshot(MOCKS / "single.json").layout_mode, "codex-usage")
         self.assertEqual(load_snapshot(MOCKS / "double.json").layout_mode, "second-experiment")
+        self.assertEqual(load_snapshot(MOCKS / "matrix_single.json").layout_mode, "matrix")
+
+    def test_matrix_job_keeps_cell_round_progress_separate(self):
+        snapshot = load_snapshot(MOCKS / "matrix_single.json")
+        self.assertEqual(snapshot.data["job"]["matrixCompleted"], 7)
+        self.assertEqual(snapshot.data["job"]["matrixTotal"], 45)
+        self.assertEqual(snapshot.data["job"]["currentCell"], 8)
+        self.assertEqual(snapshot.data["experiments"][0]["currentRound"], 37)
+        self.assertEqual(snapshot.data["experiments"][0]["progressScope"], "current-cell-round")
 
     def test_extra_statuses_are_valid(self):
         self.assertEqual(load_snapshot(MOCKS / "completed.json").experiments[0]["status"], "COMPLETED")

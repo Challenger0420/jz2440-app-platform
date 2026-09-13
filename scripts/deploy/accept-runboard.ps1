@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Port,
-    [ValidateSet('idle', 'single', 'double', 'completed', 'error')][string]$Scenario = 'single',
+    [ValidateSet('idle', 'single', 'double', 'matrix_single', 'completed', 'error', 'degraded', 'stale', 'stale_after_last_good', 'offline', 'offline_after_last_good', 'offline_cold_start', 'longtext')][string]$Scenario = 'single',
     [switch]$Live,
+    [switch]$LiveDryRun,
     [int]$IntervalSeconds = 5,
     [int]$StreamDurationSeconds = 15,
     [switch]$Execute,
@@ -27,12 +28,21 @@ function Serial-Checked([string]$command, [int]$seconds = 3) {
 }
 
 if ($Execute -and $Rollback) { throw 'Use either -Execute or -Rollback, not both.' }
+if ($LiveDryRun -and ($Execute -or $Rollback)) { throw 'LiveDryRun is offline-only; do not combine it with Execute or Rollback.' }
 if ($IntervalSeconds -lt 1 -or $StreamDurationSeconds -lt 1) { throw 'Interval and duration must be positive.' }
 
 Step "port is explicit: $Port"
 Step 'no Flash/rootfs/startup change is performed by this script'
 if (-not (Test-Path -LiteralPath $bridge -PathType Leaf)) { throw "Bridge not found: $bridge" }
 if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Target artifact not found: $binary" }
+
+if ($LiveDryRun) {
+    Step 'PERSISTENT LIVE DRY RUN: reuse providers across cycles, verify RB1, do not open serial'
+    & python (Join-Path $root 'apps\runboard\host\runboard_state_cli.py') '--live' '--persistent-dry-run' '--cycles' '2' '--interval' '1'
+    if ($LASTEXITCODE -ne 0) { throw "live dry-run failed with exit code ${LASTEXITCODE}" }
+    Step 'LIVE_DRY_RUN_COMPLETED=YES'
+    exit 0
+}
 
 if (-not $Execute -and -not $Rollback) {
     Step 'PLAN ONLY: no serial port is opened and no board command is sent'

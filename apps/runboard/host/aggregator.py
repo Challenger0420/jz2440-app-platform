@@ -45,6 +45,7 @@ class RunBoardAggregator:
         self.experiment_seconds = max(1, experiment_seconds)
         self.codex_usage_seconds = max(1, codex_usage_seconds)
         self._last_server: Optional[Dict[str, Any]] = None
+        self._last_job: Optional[Dict[str, Any]] = None
         self._last_experiments = []
         self._last_usage: Optional[Dict[str, Any]] = None
         self._server_provider_status = "unavailable"
@@ -79,6 +80,7 @@ class RunBoardAggregator:
                         self._last_experiments = []
                     raise RuntimeError(server_data.get("collectionError"))
                 self._last_server = dict(server_data["server"])
+                self._last_job = dict(server_data["job"]) if isinstance(server_data.get("job"), dict) else None
                 self._last_experiments = list(server_data["experiments"])
                 self._source = server_data.get("source") if server_data.get("source") in {"mock", "live"} else "live"
                 self._server_provider_status = "live" if server_data.get("source") == "live" else "mock"
@@ -121,8 +123,8 @@ class RunBoardAggregator:
 
         if self._last_usage is None:
             usage = {
-                "fiveHourPercent": 0, "fiveHourReset": "unknown",
-                "weekPercent": 0, "weekReset": "unknown", "resetCards": 0,
+                "fiveHourPercent": None, "fiveHourReset": "unknown",
+                "weekPercent": None, "weekReset": "unknown", "resetCards": None,
             }
         else:
             usage = dict(self._last_usage)
@@ -145,4 +147,6 @@ class RunBoardAggregator:
             "codexUsage": usage,
             "updatedAt": now.astimezone().isoformat(timespec="seconds"),
         }
+        if self._last_job is not None:
+            state["job"] = dict(self._last_job)
         return validate_snapshot(state)

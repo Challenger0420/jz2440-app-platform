@@ -1,6 +1,6 @@
 """Load the ignored local-only live collection configuration."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any, Dict
@@ -38,6 +38,7 @@ class RunBoardConfig:
     ui_render_milliseconds: int = 1000
     offline_after_failures: int = 3
     codex_usage: CodexUsageConfig = CodexUsageConfig()
+    job_display_names: Dict[str, str] = field(default_factory=dict)
 
 
 def load_live_config(root: Path) -> RunBoardConfig:
@@ -95,6 +96,12 @@ def load_live_config(root: Path) -> RunBoardConfig:
 
     server_id = str(server.get("id") or "SERVER-01")
     display_name = str(server.get("displayName") or server_id)
+    display_names_raw = raw.get("jobDisplayNames")
+    job_display_names = {
+        str(key): str(value).strip()
+        for key, value in display_names_raw.items()
+        if str(key).strip() and str(value).strip()
+    } if isinstance(display_names_raw, dict) else {}
     return RunBoardConfig(
         server_id=server_id,
         display_name=display_name,
@@ -108,4 +115,5 @@ def load_live_config(root: Path) -> RunBoardConfig:
         ),
         **sample_values,
         codex_usage=CodexUsageConfig(usage_mode, usage_command, usage_timeout),
+        job_display_names=job_display_names,
     )

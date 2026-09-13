@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "source": "mock",
+  "server": {
+    "id": "RESEARCH-GPU-SERVER-WITH-A-VERY-LONG-NAME",
+    "displayName": "RESEARCH-GPU-SERVER-WITH-A-VERY-LONG-NAME",
+    "status": "online",
+    "cpuPercent": 64,
+    "ram": { "usedGiB": 11.8, "totalGiB": 16.0, "usedPercent": 74 },
+    "gpu": { "name": "GPU-0", "utilizationPercent": 87, "memoryUsedGiB": 12.6, "memoryTotalGiB": 16.0 }
+  },
+  "experiments": [
+    {
+      "name": "federated-segmentation-very-long-experiment-name",
+      "user": "research-user-with-a-long-identity",
+      "status": "RUNNING",
+      "progress": 68,
+      "currentRound": 68,
+      "totalRound": 100,
+      "elapsedSeconds": 8420,
+      "dataset": "LEVIR-CD-plus-extended-dataset",
+      "seed": 424242,
+      "metricName": "mean-intersection-over-union",
+      "metricValue": 59.74
+    }
+  ],
+  "codexUsage": { "fiveHourPercent": 82, "fiveHourReset": "15:27", "weekPercent": 64, "weekReset": "9/19 16:09", "resetCards": 3 },
+  "freshness": {
+    "server": { "state": "fresh", "ageSeconds": 2, "consecutiveFailures": 0 },
+    "codexUsage": { "state": "fresh", "ageSeconds": 2, "consecutiveFailures": 0 }
+  },
+  "updatedAt": "2026-09-12 10:30:00"
+}

@@ -26,6 +26,9 @@ class Snapshot:
         if count == 0:
             return "idle"
         if count == 1:
+            job = self.data.get("job")
+            if isinstance(job, dict) and isinstance(job.get("matrixTotal"), int) and job.get("matrixTotal", 0) > 0:
+                return "matrix"
             return "codex-usage"
         return "second-experiment"
 
@@ -129,6 +132,27 @@ def validate_snapshot(data: Dict[str, Any]) -> Snapshot:
             _optional_number(load, key, "server.loadAverage")
     _optional_number(server, "uptimeSeconds", "server", 0)
 
+    job = data.get("job")
+    if job is not None:
+        if not isinstance(job, dict):
+            raise ValueError("job must be an object")
+        _optional_text(job, "name", "job")
+        _optional_text(job, "method", "job")
+        _optional_text(job, "progressScope", "job")
+        for key in ("matrixCompleted", "matrixTotal", "currentCell"):
+            value = job.get(key)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
+                raise ValueError("job.{} must be a non-negative integer or null".format(key))
+        if job.get("matrixTotal") is not None and job["matrixTotal"] < 1:
+            raise ValueError("job.matrixTotal must be positive")
+        if (job.get("matrixCompleted") is not None and job.get("matrixTotal") is not None and
+                job["matrixCompleted"] > job["matrixTotal"]):
+            raise ValueError("job.matrixCompleted must not exceed job.matrixTotal")
+        if (job.get("currentCell") is not None and job.get("matrixTotal") is not None and
+                (job["currentCell"] < 1 or job["currentCell"] > job["matrixTotal"])):
+            raise ValueError("job.currentCell must be within matrixTotal")
+        _optional_number(job, "matrixProgressPercent", "job", 0, 100)
+
     experiments = _require(data, "experiments", "snapshot")
     if not isinstance(experiments, list):
         raise ValueError("experiments must be a list")
@@ -155,12 +179,17 @@ def validate_snapshot(data: Dict[str, Any]) -> Snapshot:
             raise ValueError("{} round values are invalid".format(path))
         for key in ("dataset", "metricName"):
             _optional_text(experiment, key, path)
+        _optional_text(experiment, "progressScope", path)
+        if "elapsedSource" in experiment and experiment["elapsedSource"] not in {"RELIABLE", "INFERRED", "UNKNOWN"}:
+            raise ValueError("{}.elapsedSource is invalid".format(path))
 
     usage = _require(data, "codexUsage", "snapshot")
     if not isinstance(usage, dict):
         raise ValueError("codexUsage must be an object")
     for key in ("fiveHourPercent", "weekPercent"):
-        _number(_require(usage, key, "codexUsage"), "codexUsage." + key, 0, 100)
+        value = _require(usage, key, "codexUsage")
+        if value is not None:
+            _number(value, "codexUsage." + key, 0, 100)
     for key in ("fiveHourReset", "weekReset"):
         _text(_require(usage, key, "codexUsage"), "codexUsage." + key)
     cards = _require(usage, "resetCards", "codexUsage")
