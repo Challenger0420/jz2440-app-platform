@@ -37,7 +37,10 @@ docs/                       architecture, deployment, and handoff documents
 
 ## 本阶段边界
 
-`--live` 只通过本地忽略配置发起 SSH 只读查询；失败时生成 `OFFLINE` 快照并记录本地日志。服务器采集不启停实验、不修改服务器状态。板端部署只允许使用现有 appctl 的临时路径；不写 Flash、rootfs、启动脚本、bootloader 或 kernel。
+`--live` 只通过本地忽略配置发起 SSH 只读查询；失败时生成 `OFFLINE` 快照并记录本地日志。服务器采集不启停实验、不修改服务器状态。RunBoard
+已安装在平台标准应用路径并由现有 `appctl` 管理；安装不写 Flash、NAND、
+bootloader、kernel、U-Boot 环境或全局 startup。Reset 后默认仍为 Qtopia，
+RunBoard 不开机自启动。
 
 ## Host Aggregator
 
@@ -128,8 +131,8 @@ provider 失败时百分比保持 `null/--`，不把 unknown 伪装成 `0%`。
 
 ### 最终现场回归状态
 
-- final matrix mock UI renderer = FROZEN；本轮只补充 offline 专用渲染，不改变已确认的正常 live/matrix 布局。
-- 最终 target 已按既有 ARM/OABI 基线临时部署，板端大小、校验和及可执行权限一致；未做永久安装。
+- final matrix mock UI renderer = FROZEN；所有最终状态页面均已完成现场肉眼确认。
+- 最终 target 已按既有 ARM/OABI 基线安装到平台标准应用路径，板端大小、校验和及可执行权限一致；Reset 后仍然存在，完成了“已安装但不自启动”的持久性验收。
 - Persistent real-live sender = PASS：同一 Provider/Aggregator 会话连续生成实时 RB1，UA 从接近 0 持续增长，未退化为逐帧 one-shot。
 - Real live board path = PASS：`APPREADY`、seq 0–5、长度/CRC/解析/绘制均有板端证据；Server/Codex freshness 独立。
 - 稳定 live 窗口中的矩阵字段已通过板端核对：`MATRIX 12/45`、`CELL 13/45`、
@@ -143,11 +146,11 @@ provider 失败时百分比保持 `null/--`，不把 unknown 伪装成 `0%`。
 - 最终板端状态为 Qtopia，RunBoard 与 Codex Monitor 均未运行。
 - 程序链路已完成真实数据回归；用户已明确确认真实 Formal v6 live LCD，`RunBoard real live LCD acceptance = PASS`。
 - Offline 页面遵循同一最终样式：服务器资源显示 `--%` / `--/--G`，主体显示
-  `SERVER OFFLINE` / `NO LIVE SERVER DATA`，Codex quota 保持独立；offline mock 的
-  最终 LCD 肉眼确认仍待本轮完成。
+  `SERVER OFFLINE` / `NO LIVE SERVER DATA`，Codex quota 保持独立；offline、
+  degraded 和 longtext 等最终状态均已完成现场肉眼确认。
 
-脚本默认 plan-only；`-LiveDryRun` 不打开串口。只有显式 `-Execute` 才进入临时板端流程，
-不做永久部署、Flash/rootfs/startup 修改或自动 Reset。
+脚本默认 plan-only；`-LiveDryRun` 不打开串口。只有显式 `-Execute` 才进入板端验收流程，
+不修改 Flash/rootfs/startup，也不自动 Reset；正式安装由平台应用目录和 `appctl` 契约管理。
 
 ## Host/target 生命周期
 
@@ -173,20 +176,26 @@ Windows Bridge 的 stop 有固定超时：`RC=0` 表示确认停止；非零 RC 
 
 ### 已有实机证据
 
-- 临时 target 已注册到 appctl；Host 已观察到 APPREADY，并发送连续真实 live RB1 帧。
+- 最终 target 已安装并持久保留在平台标准应用路径；`appctl list` 可见
+  `codex-monitor` 与 `runboard`，Reset 后仍保持注册和文件校验一致。
 - 板端已报告连续 `PARSED` / `DRAWN`，正常停止收到 `APPSTOP`，并恢复 shell/Qtopia。
 - Codex Monitor 已完成启动、真实额度请求/响应和正常停止回归；随后 RunBoard 再启动也通过。
-- 以上程序证据不替代现场人员对真实 LCD 的最终肉眼确认。
+- 用户已确认真实 live/matrix、double、IDLE、STALE、OFFLINE、COMPLETED、ERROR、
+  DEGRADED 和 longtext LCD 页面。
 
-### 当前 blocker
+### 当前状态
 
-- 若尚未取得现场人员对真实 live LCD 的明确肉眼确认，则只剩该视觉确认；板端接收、解析、
-  绘制、生命周期、Codex Monitor 回归和串口重连已有证据。
+- RunBoard 功能、最终 UI、RB1 协议、真实 Server/Codex pipeline、生命周期、状态覆盖和
+  平台安装均已验收。
+- RunBoard 与 Codex Monitor 都是 platform-managed applications；默认状态为 Qtopia，
+  两者均不自启动。
+- RunBoard UI、协议和 Provider 语义冻结；后续工作转交 Windows Control，不在 RunBoard
+  主线上继续增加 UI 场景。
 
 ### 下一步
 
-只在需要补充视觉确认时，重新启动已验收的临时 live 流程并由现场人员确认 LCD；否则保持当前
-Qtopia clean state，不继续扩展功能。
+进入 Windows Control 主线：只通过 `appctl` 和 APPREADY/APPSTOP 生命周期契约执行应用
+列表、状态读取、停止、启动和断线重连，不绕过板端应用管理器。
 
 离线验收脚本默认 plan-only；`-Execute` 和 `-Rollback` 必须显式选择，步骤失败后
 停止，不进入自动重启或无限恢复循环。

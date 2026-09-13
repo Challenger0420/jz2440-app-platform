@@ -56,10 +56,10 @@ Inspect deployment without touching the board:
 powershell -ExecutionPolicy Bypass -File scripts/deploy/deploy-runboard.ps1 -Port COMx
 ```
 
-The deploy script is plan-only unless `-Deploy` is supplied. A deployment is
-volatile under `/opt/jz2440/apps/runboard` and uses the existing `appctl`; it
-does not write Flash, rootfs images, or startup scripts. The host bridge owns
-COM discovery/transport and streams RB1 frames:
+The deploy script is plan-only unless `-Deploy` is supplied. The accepted
+platform installation lives under `/opt/jz2440/apps/runboard` and uses the
+existing `appctl`; it does not write Flash, rootfs images, or startup scripts.
+The host bridge owns COM discovery/transport and streams RB1 frames:
 
 ```powershell
 build/runboard/RunBoardBridge.exe board start --console --scenario idle --duration 30 --port COMx
@@ -89,12 +89,22 @@ executed board flow, and does not perform automatic recovery or permanent
 deployment. LCD visual inspection, physical reconnect, and Qtopia state after
 a real stop remain on-site checks.
 
-## Final hardware regression record
+## Final platform installation and hardware regression record
 
-The final temporary live run passed the host-to-target path: APPREADY,
-continuous live RB1 frames, target length/CRC/parse/draw diagnostics, normal
-APPSTOP, shell/termios/Qtopia recovery, Codex Monitor regression, and one
-physical USB-serial reconnect. The user also confirmed the real Formal v6 live
-LCD. The final board state is clean Qtopia with no RunBoard or Codex Monitor
-process. The offline LCD page remains a separate visual gate for the current
-offline-mock pass.
+The final target is installed at the standard platform application path and is
+registered with `appctl`. It persists across Reset but is not an autostart item;
+the default post-Reset state remains Qtopia. The installed target is 44876 bytes
+with SHA256
+`917F8028CCD6922D2F41D82B83F840FCF4CAD81ECA8371B9FE77F2F20E9C8B66`.
+
+The final host-to-target path passed APPREADY, continuous live RB1 frames,
+target length/CRC/parse/draw diagnostics, normal APPSTOP, shell/termios/Qtopia
+recovery, Codex Monitor regression, RunBoard-after-Codex, and one physical
+USB-serial reconnect. The user confirmed the real Formal v6 live LCD and all
+final mock state pages, including double, IDLE, STALE, OFFLINE, COMPLETED,
+ERROR, DEGRADED, and longtext. The final board state is clean Qtopia with no
+RunBoard or Codex Monitor process.
+
+RunBoard and Codex Monitor are platform-managed applications. Future switching
+belongs to Windows Control and must use `appctl` plus APPREADY/APPSTOP; it must
+not directly kill processes, write the LCD, or bypass the board lifecycle.
