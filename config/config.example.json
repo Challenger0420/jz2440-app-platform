@@ -10,9 +10,9 @@
     }
   },
   "sampling": {
-    "serverResourceSeconds": 10,
-    "experimentSeconds": 20,
-    "codexUsageSeconds": 300,
+    "serverResourceSeconds": 600,
+    "experimentSeconds": 600,
+    "codexUsageSeconds": 60,
     "uiRenderMilliseconds": 1000,
     "offlineAfterFailures": 3
   },

@@ -55,10 +55,14 @@ success → fresh
 明确解析/Provider error → error
 ```
 
-默认采样为 server resource 10 秒、experiment 20 秒、Codex Usage 300 秒、
-UI render 1000 毫秒。当前 Server Provider 将资源和实验作为同一 SSH 原子
-快照读取，因此实际 server probe 使用资源周期；experiment 周期作为后续拆分
-Provider 的配置接口保留。
+默认采样为 Server collection 600 秒、Codex Usage 60 秒、UI render 1000
+毫秒。当前 Server Provider 将资源、实验和矩阵元数据作为同一 SSH 原子快照
+读取，因此这些远程信息共用一次 Server collection；`experimentSeconds` 保留
+为未来拆分 Provider 的配置接口，默认与 Server collection 同为 600 秒。
+Bridge 默认每 60 秒发布一次 RB1/LCD 帧；发布频率与远程采集频率独立。
+因此两次 Server collection 之间的缓存年龄（包括 5--9 分钟）不会自行触发
+STALE；只有到达计划的 Server collection 且本次采集失败时，才按失败次数转为
+STALE/OFFLINE，并继续保留 last-known-good 数据。
 
 `apps/runboard/host/live_sender.py` 提供长驻 live sender。它在会话开始时
 创建一次 Provider/Aggregator，后续按配置 cadence 请求快照并编码 RB1；因此
@@ -106,7 +110,7 @@ Host 离线硬门槛命令：
 
 ```powershell
 python apps/runboard/host/runboard_state_cli.py --live --dry-run
-python apps/runboard/host/runboard_state_cli.py --live --persistent-dry-run --cycles 3 --interval 10
+python apps/runboard/host/runboard_state_cli.py --live --persistent-dry-run --cycles 3 --interval 60
 ```
 
 该命令只做 SSH Server Provider 与真实 Codex Provider 的只读采样，随后执行
@@ -115,7 +119,8 @@ python apps/runboard/host/runboard_state_cli.py --live --persistent-dry-run --cy
 
 `--persistent-dry-run` 使用同一个 sender 实例运行多个 live cycle，同样明确
 `SERIAL=NO`，用于验证 cadence、last-good 缓存、独立 freshness 和 UA 增长；它
-不会启动 Bridge，也不会连接开发板。
+不会启动 Bridge，也不会连接开发板。调度测试使用 fake clock 覆盖 0、60、120、
+540、600、660 秒，不需要真实等待十分钟。
 
 当前 live 状态固定区分三层进度：
 

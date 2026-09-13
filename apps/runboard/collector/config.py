@@ -32,9 +32,9 @@ class RunBoardConfig:
     server_id: str
     display_name: str
     ssh: SSHConfig
-    server_resource_seconds: int = 10
-    experiment_seconds: int = 20
-    codex_usage_seconds: int = 300
+    server_resource_seconds: int = 600
+    experiment_seconds: int = 600
+    codex_usage_seconds: int = 60
     ui_render_milliseconds: int = 1000
     offline_after_failures: int = 3
     codex_usage: CodexUsageConfig = CodexUsageConfig()
@@ -73,9 +73,9 @@ def load_live_config(root: Path) -> RunBoardConfig:
     sampling = raw.get("sampling") if isinstance(raw.get("sampling"), dict) else {}
     try:
         sample_values = {
-            "server_resource_seconds": int(sampling.get("serverResourceSeconds", 10)),
-            "experiment_seconds": int(sampling.get("experimentSeconds", 20)),
-            "codex_usage_seconds": int(sampling.get("codexUsageSeconds", 300)),
+            "server_resource_seconds": int(sampling.get("serverResourceSeconds", 600)),
+            "experiment_seconds": int(sampling.get("experimentSeconds", 600)),
+            "codex_usage_seconds": int(sampling.get("codexUsageSeconds", 60)),
             "ui_render_milliseconds": int(sampling.get("uiRenderMilliseconds", 1000)),
             "offline_after_failures": int(sampling.get("offlineAfterFailures", 3)),
         }

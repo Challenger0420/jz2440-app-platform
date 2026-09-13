@@ -139,18 +139,47 @@ class PersistentLiveSenderTests(unittest.TestCase):
     def test_persistent_dry_run_has_no_serial_and_reuses_aggregator(self):
         server = SequenceServerProvider([self.cpu10])
         sender = PersistentLiveSender(RunBoardAggregator(
-            server, MockCodexUsageProvider(self.usage), server_resource_seconds=1,
-            codex_usage_seconds=1,
+            server, MockCodexUsageProvider(self.usage), server_resource_seconds=600,
+            experiment_seconds=600, codex_usage_seconds=60,
         ))
-        clock_values = iter(self.t0 + timedelta(seconds=value) for value in (0, 1, 2))
+        clock_values = iter(self.t0 + timedelta(seconds=value) for value in (0, 60, 600))
         output = io.StringIO()
         cycles = sender.run_dry_run(
             3, 0, output, dry_run_summary, clock=lambda: next(clock_values),
         )
         self.assertEqual(cycles, 3)
-        self.assertEqual(server.calls, 3)
+        self.assertEqual(server.calls, 2)
         self.assertEqual(output.getvalue().count("SERIAL=NO"), 3)
         self.assertNotIn("RB1|", output.getvalue())
+
+    def test_cadence_timeline_publishes_every_minute_but_collects_server_twice(self):
+        class CountingCodexProvider:
+            def __init__(self, usage):
+                self.usage = dict(usage)
+                self.calls = 0
+
+            def collect(self):
+                self.calls += 1
+                return CodexUsageResult(self.usage, "live", "quota")
+
+        server = SequenceServerProvider([self.cpu10, self.cpu20])
+        codex = CountingCodexProvider(self.usage)
+        sender = PersistentLiveSender(RunBoardAggregator(
+            server, codex, server_resource_seconds=600,
+            experiment_seconds=600, codex_usage_seconds=60,
+        ))
+        values = (0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660)
+        clock_values = iter(self.t0 + timedelta(seconds=value) for value in values)
+        output = io.StringIO()
+        cycles = sender.run_dry_run(
+            len(values), 0, output, dry_run_summary, clock=lambda: next(clock_values),
+        )
+
+        self.assertEqual(cycles, 12)
+        self.assertEqual(server.calls, 2)
+        self.assertEqual(codex.calls, 12)
+        self.assertEqual(output.getvalue().count("PERSISTENT_CYCLE="), 12)
+        self.assertEqual(output.getvalue().count("SERIAL=NO"), 12)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,11 @@ RunBoard is the Windows Host / JZ2440 display path for read-only research
 server status. The Host collects a validated state, encodes RB1 v1, and the
 board target only parses and renders that state.
 
+Live scheduling defaults are one RB1/LCD publish and one Codex quota poll per
+60 seconds. Server resources, experiments, and matrix/process metadata share
+one read-only Server collection every 600 seconds; intervening frames reuse the
+last successful Server snapshot and advance its freshness age.
+
 ## Local verification
 
 ```powershell
@@ -17,7 +22,7 @@ python apps/runboard/host/runboard_state_cli.py --scenario offline_after_last_go
 python apps/runboard/host/runboard_state_cli.py --scenario offline_cold_start
 python apps/runboard/host/runboard_state_cli.py --scenario longtext
 python apps/runboard/host/runboard_state_cli.py --live --dry-run
-python apps/runboard/host/runboard_state_cli.py --live --persistent-dry-run --cycles 3 --interval 10
+python apps/runboard/host/runboard_state_cli.py --live --persistent-dry-run --cycles 3 --interval 60
 python apps/runboard/preview/runboard_preview.py --live
 ```
 
@@ -64,7 +69,7 @@ The host bridge owns COM discovery/transport and streams RB1 frames:
 ```powershell
 build/runboard/RunBoardBridge.exe board start --console --scenario idle --duration 30 --port COMx
 build/runboard/RunBoardBridge.exe board start --console --scenario longtext --duration 30 --port COMx
-build/runboard/RunBoardBridge.exe board start --console --live --interval 10 --port COMx
+build/runboard/RunBoardBridge.exe board start --console --live --interval 60 --port COMx
 build/runboard/RunBoardBridge.exe board stop --application --port COMx
 ```
 

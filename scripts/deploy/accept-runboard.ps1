@@ -3,7 +3,7 @@ param(
     [ValidateSet('idle', 'single', 'double', 'matrix_single', 'completed', 'error', 'degraded', 'stale', 'stale_after_last_good', 'offline', 'offline_after_last_good', 'offline_cold_start', 'longtext')][string]$Scenario = 'single',
     [switch]$Live,
     [switch]$LiveDryRun,
-    [int]$IntervalSeconds = 5,
+    [int]$IntervalSeconds = 60,
     [int]$StreamDurationSeconds = 15,
     [switch]$Execute,
     [switch]$Rollback

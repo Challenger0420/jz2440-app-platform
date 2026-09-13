@@ -55,7 +55,7 @@ public static class RunBoardBridgeProgram
         bool trace = false;
         bool live = false;
         string scenario = "idle";
-        int interval = 10;
+        int interval = 60;
         int duration = 0;
         string python = "python";
         for (int i = 2; i < args.Length; i++)

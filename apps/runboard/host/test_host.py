@@ -5,6 +5,7 @@ from pathlib import Path
 
 from apps.runboard.host.aggregator import RunBoardAggregator, StaticServerProvider
 from apps.runboard.host.runboard_state_cli import _restore_mock_display_state, dry_run_summary
+from apps.runboard.collector.config import RunBoardConfig, SSHConfig
 from apps.runboard.host.codex_usage_provider import (
     CodexMonitorQuotaProvider,
     CodexUsageResult,
@@ -50,6 +51,14 @@ class HostTests(unittest.TestCase):
         self.matrix = load_snapshot(ROOT / "apps" / "runboard" / "shared" / "mocks" / "matrix_single.json")
         self.now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
 
+    def test_default_live_sampling_matches_host_schedule(self):
+        config = RunBoardConfig(
+            "SERVER-01", "SERVER-01", SSHConfig("100.x.x.x", "USER", 22, "identity")
+        )
+        self.assertEqual(config.server_resource_seconds, 600)
+        self.assertEqual(config.experiment_seconds, 600)
+        self.assertEqual(config.codex_usage_seconds, 60)
+
     def test_codex_parser_matches_codex_monitor_contract(self):
         with open(ROOT / "apps" / "codex-monitor" / "host" / "testdata" / "rate_limits_sample.json", encoding="utf-8") as handle:
             usage = parse_rate_limits_response(json.load(handle), self.now)
@@ -86,6 +95,69 @@ class HostTests(unittest.TestCase):
         self.assertEqual(second.data["freshness"]["server"]["state"], "stale")
         self.assertEqual(second.data["freshness"]["codexUsage"]["state"], "fresh")
         self.assertEqual(second.data["codexUsage"]["resetCards"], 3)
+
+    def test_minute_publish_cadence_polls_server_only_at_start_and_ten_minutes(self):
+        class CountingCodexProvider:
+            def __init__(self, usage):
+                self.usage = dict(usage)
+                self.calls = 0
+
+            def collect(self):
+                self.calls += 1
+                return CodexUsageResult(self.usage, "live", "quota")
+
+        server = SequenceServerProvider([self.matrix, self.matrix])
+        codex = CountingCodexProvider(self.matrix.data["codexUsage"])
+        aggregator = RunBoardAggregator(
+            server, codex, offline_after_failures=3,
+            server_resource_seconds=600, experiment_seconds=600,
+            codex_usage_seconds=60,
+        )
+        states = [aggregator.collect(self.now + timedelta(seconds=seconds))
+                  for seconds in (0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660)]
+
+        self.assertEqual(server.calls, 2)
+        self.assertEqual(codex.calls, 12)
+        self.assertEqual(states[9].data["freshness"]["server"]["state"], "fresh")
+        self.assertEqual(states[9].data["freshness"]["server"]["ageSeconds"], 540)
+        self.assertEqual(states[10].data["freshness"]["server"]["ageSeconds"], 0)
+        self.assertTrue(all(len(state.data["experiments"]) == 1 for state in states))
+
+    def test_server_cache_remains_fresh_until_scheduled_poll_failure(self):
+        server = SequenceServerProvider([self.matrix, RuntimeError("scheduled failure"), self.matrix])
+        aggregator = RunBoardAggregator(
+            server, MockCodexUsageProvider(self.matrix.data["codexUsage"]),
+            offline_after_failures=3, server_resource_seconds=600,
+            experiment_seconds=600, codex_usage_seconds=60,
+        )
+        fresh = aggregator.collect(self.now)
+        cached = aggregator.collect(self.now + timedelta(seconds=599))
+        stale = aggregator.collect(self.now + timedelta(seconds=600))
+        still_stale = aggregator.collect(self.now + timedelta(seconds=660))
+        recovered = aggregator.collect(self.now + timedelta(seconds=1200))
+
+        self.assertEqual(server.calls, 3)
+        self.assertEqual(fresh.data["freshness"]["server"]["state"], "fresh")
+        self.assertEqual(cached.data["freshness"]["server"]["state"], "fresh")
+        self.assertEqual(cached.data["freshness"]["server"]["ageSeconds"], 599)
+        self.assertEqual(stale.data["freshness"]["server"]["state"], "stale")
+        self.assertEqual(stale.data["freshness"]["server"]["ageSeconds"], 600)
+        self.assertEqual(still_stale.data["freshness"]["server"]["state"], "stale")
+        self.assertEqual(len(still_stale.data["experiments"]), 1)
+        self.assertEqual(recovered.data["freshness"]["server"]["state"], "fresh")
+        self.assertEqual(recovered.data["freshness"]["server"]["ageSeconds"], 0)
+
+    def test_server_due_time_does_not_drift_after_a_late_publish_tick(self):
+        server = SequenceServerProvider([self.matrix, self.matrix, self.matrix])
+        aggregator = RunBoardAggregator(
+            server, MockCodexUsageProvider(self.matrix.data["codexUsage"]),
+            server_resource_seconds=600, experiment_seconds=600,
+            codex_usage_seconds=60,
+        )
+        aggregator.collect(self.now)
+        aggregator.collect(self.now + timedelta(seconds=650))
+        aggregator.collect(self.now + timedelta(seconds=1200))
+        self.assertEqual(server.calls, 3)
 
     def test_fresh_stale_offline_transition_is_configured(self):
         tracker = FreshnessTracker(offline_after_failures=2)
@@ -219,7 +291,7 @@ class HostTests(unittest.TestCase):
 
     def test_sampling_prevents_high_frequency_codex_calls(self):
         codex = FailingCodexProvider("unavailable")
-        aggregator = RunBoardAggregator(StaticServerProvider(self.single), codex, codex_usage_seconds=300)
+        aggregator = RunBoardAggregator(StaticServerProvider(self.single), codex, codex_usage_seconds=60)
         aggregator.collect(self.now, force=True)
         aggregator.collect(self.now + timedelta(seconds=1))
         self.assertEqual(codex.calls, 1)

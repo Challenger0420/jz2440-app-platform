@@ -8,4 +8,4 @@
 - 不把真实用户名、主机名、端口、内部路径或凭据写入仓库。
 - `config.local.json`、`.env` 和其他本地配置已加入 `.gitignore`。
 - Live Provider 只执行 `hostname`、`/proc`、`ps`、`nvidia-smi`、`tmux list-*` 和实验元数据/日志读取，不执行启停、修改、上传或权限操作。
-- `sampling` 配置分别控制 server resource、experiment、Codex Usage 和 UI render；当前 Server Provider 为原子快照，实际 SSH probe 使用 `serverResourceSeconds`，Codex Usage 默认低频刷新。
+- `sampling` 配置分别控制 server resource、experiment、Codex Usage 和 UI render；当前 Server Provider 为原子快照，资源、实验和矩阵元数据共用一次 600 秒 Server collection，Codex Usage 默认每 60 秒刷新。

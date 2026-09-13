@@ -1,6 +1,6 @@
 """RunBoard Host aggregation: providers in, one validated state out."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Protocol
 
@@ -35,8 +35,8 @@ def _error_text(error: Any, default: str) -> str:
 
 class RunBoardAggregator:
     def __init__(self, server_provider: ServerProvider, codex_provider: CodexUsageProvider,
-                 offline_after_failures: int = 3, server_resource_seconds: int = 10,
-                 experiment_seconds: int = 20, codex_usage_seconds: int = 300) -> None:
+                 offline_after_failures: int = 3, server_resource_seconds: int = 600,
+                 experiment_seconds: int = 600, codex_usage_seconds: int = 60) -> None:
         self.server_provider = server_provider
         self.codex_provider = codex_provider
         self.server_freshness = FreshnessTracker(offline_after_failures)
@@ -51,12 +51,29 @@ class RunBoardAggregator:
         self._server_provider_status = "unavailable"
         self._codex_provider_status = "unavailable"
         self._source = "live"
-        self._last_collection_at: Dict[str, Optional[datetime]] = {"server": None, "codexUsage": None}
+        # The aggregator is the single Host-side cadence scheduler.  The
+        # Bridge may publish a frame every minute, while these independent
+        # due-times decide which providers are actually queried.  Keeping the
+        # next due time (rather than using frame count) also makes fake-clock
+        # cadence tests deterministic and avoids wall-clock modulo logic.
+        self._next_due_at: Dict[str, Optional[datetime]] = {"server": None, "codexUsage": None}
 
     def _due(self, key: str, now: datetime, interval: int, force: bool) -> bool:
-        if force or self._last_collection_at[key] is None:
+        if force or self._next_due_at[key] is None:
             return True
-        return (now - self._last_collection_at[key]).total_seconds() >= interval  # type: ignore
+        return now >= self._next_due_at[key]  # type: ignore
+
+    def _schedule_next(self, key: str, now: datetime, interval: int, force: bool) -> None:
+        """Advance a provider cadence without tying it to display frames."""
+        step = timedelta(seconds=max(1, interval))
+        due = self._next_due_at[key]
+        if force or due is None:
+            self._next_due_at[key] = now + step
+            return
+        due += step
+        while due <= now:
+            due += step
+        self._next_due_at[key] = due
 
     def collect(self, now: Optional[datetime] = None, force: bool = False) -> Snapshot:
         now = now or _now()
@@ -67,7 +84,7 @@ class RunBoardAggregator:
         # probe; experiment_seconds is the configured seam for splitting those
         # queries later without duplicating the collector.
         if self._due("server", now, self.server_resource_seconds, force):
-            self._last_collection_at["server"] = now
+            self._schedule_next("server", now, self.server_resource_seconds, force)
             try:
                 server_snapshot = self.server_provider.collect()
                 server_data = server_snapshot.data
@@ -91,7 +108,7 @@ class RunBoardAggregator:
                 self._server_provider_status = "error"
                 errors.append("server: {}".format(message))
         if self._due("codexUsage", now, self.codex_usage_seconds, force):
-            self._last_collection_at["codexUsage"] = now
+            self._schedule_next("codexUsage", now, self.codex_usage_seconds, force)
             terminal = False
             try:
                 result: CodexUsageResult = self.codex_provider.collect()
