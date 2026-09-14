@@ -1,0 +1,31 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jz2440.Control.Core", "src\Jz2440.Control.Core\Jz2440.Control.Core.csproj", "{D3E0E8B5-56F9-4D57-9D2A-7C84798D3D11}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jz2440.Control", "src\Jz2440.Control\Jz2440.Control.csproj", "{B6A9D7A1-6D75-4D1E-9B91-35B4B9B1B0F0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jz2440.Control.Core.Tests", "tests\Jz2440.Control.Core.Tests\Jz2440.Control.Core.Tests.csproj", "{BB9E8B50-3F9B-4474-BA0E-0CB4F12C1F17}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D3E0E8B5-56F9-4D57-9D2A-7C84798D3D11}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3E0E8B5-56F9-4D57-9D2A-7C84798D3D11}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3E0E8B5-56F9-4D57-9D2A-7C84798D3D11}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3E0E8B5-56F9-4D57-9D2A-7C84798D3D11}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B6A9D7A1-6D75-4D1E-9B91-35B4B9B1B0F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B6A9D7A1-6D75-4D1E-9B91-35B4B9B1B0F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B6A9D7A1-6D75-4D1E-9B91-35B4B9B1B0F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B6A9D7A1-6D75-4D1E-9B91-35B4B9B1B0F0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BB9E8B50-3F9B-4474-BA0E-0CB4F12C1F17}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BB9E8B50-3F9B-4474-BA0E-0CB4F12C1F17}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BB9E8B50-3F9B-4474-BA0E-0CB4F12C1F17}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BB9E8B50-3F9B-4474-BA0E-0CB4F12C1F17}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

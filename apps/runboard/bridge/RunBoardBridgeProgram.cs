@@ -6,26 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-public sealed class RunBoardAdapter : IApplicationAdapter
-{
-    public string Name { get { return "runboard"; } }
-    public string StartCommand { get { return "/opt/jz2440/bin/appctl start runboard\n"; } }
-    public string StopCommand { get { return "<RBQUIT>\n"; } }
-    public bool IsApplicationTraffic(string line) { return line != null && line.StartsWith("RB1|", StringComparison.Ordinal); }
-    public bool IsReady(string line) { return line != null && line.IndexOf("<APPREADY|runboard>", StringComparison.Ordinal) >= 0; }
-    public bool IsStopped(string line) { int code; return TryGetReturnCode(line, out code); }
-    public bool TryGetReturnCode(string line, out int code)
-    {
-        const string prefix = "<APPSTOP|runboard|RC=";
-        code = -1;
-        if (line == null) return false;
-        string normalized = line.TrimEnd('\r', '\n');
-        if (!normalized.StartsWith(prefix, StringComparison.Ordinal) || !normalized.EndsWith(">", StringComparison.Ordinal)) return false;
-        string value = normalized.Substring(prefix.Length, normalized.Length - prefix.Length - 1);
-        return Int32.TryParse(value, out code) && code >= 0;
-    }
-}
-
 public static class RunBoardBridgeProgram
 {
     private static readonly RunBoardAdapter Adapter = new RunBoardAdapter();
@@ -72,7 +52,7 @@ public static class RunBoardBridgeProgram
             else throw new ArgumentException("unknown board argument: " + args[i]);
         }
         if (command == "list") return List(port, console, trace);
-        if (command == "status") return Status(port, trace);
+        if (command == "status") return Status(port, trace, console);
         if (command == "stop") return Stop(port, application, trace);
         if (command == "start") return Start(port, console, trace, live, scenario, interval, duration, python);
         PrintUsage();
@@ -96,7 +76,7 @@ public static class RunBoardBridgeProgram
         return 0;
     }
 
-    private static int Status(string port, bool trace)
+    private static int Status(string port, bool trace, bool console)
     {
         using (ISerialTransport opened = SerialTransport.Open(FindPort(port)))
         {
@@ -105,7 +85,14 @@ public static class RunBoardBridgeProgram
             using (serial == opened ? null : serial)
             {
                 BoardControllerMode mode = controller.Observe(1500);
-                Console.WriteLine("port={0} mode={1}", opened.PortName, mode);
+                string status = null;
+                if (console)
+                {
+                    controller.ConfirmConsoleMode();
+                    mode = BoardControllerMode.Console;
+                    status = controller.QueryStatus(3000);
+                }
+                Console.WriteLine("port={0} mode={1} appctl={2}", opened.PortName, mode, status ?? "unknown");
             }
         }
         return 0;

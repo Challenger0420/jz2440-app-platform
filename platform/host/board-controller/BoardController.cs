@@ -164,6 +164,30 @@ public sealed class BoardController
         return null;
     }
 
+    public string QueryStatus(int timeoutMilliseconds)
+    {
+        if (Mode == BoardControllerMode.Unknown) Observe(750);
+        if (Mode != BoardControllerMode.Console) return null;
+        string marker = "JZ2440_CTL_STATUS_" + DateTime.UtcNow.Ticks.ToString();
+        if (!SyncConsole(marker, timeoutMilliseconds)) return null;
+        serial.Write("/opt/jz2440/bin/appctl status\n");
+        serial.Write("echo " + marker + "\n");
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            IList<string> lines = ReadLines(serial.ReadAvailable());
+            foreach (string line in lines)
+            {
+                if (line.IndexOf(marker, StringComparison.Ordinal) >= 0) return null;
+                string value = line.Trim();
+                if (value == "QTOPIA" || value == "STOPPED" || value.StartsWith("APP ", StringComparison.Ordinal))
+                    return value;
+            }
+            Thread.Sleep(25);
+        }
+        return null;
+    }
+
     private IList<string> ReadLines(string incoming)
     {
         List<string> lines = new List<string>();

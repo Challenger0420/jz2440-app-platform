@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Jz2440.Control.Core</AssemblyName>
+    <RootNamespace>Jz2440.Control.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Existing bridge sources are linked, not moved or rewritten. -->
+    <Compile Include="..\..\..\board-controller\ApplicationAdapter.cs" Link="LegacyBridge\ApplicationAdapter.cs" />
+    <Compile Include="..\..\..\board-controller\BoardController.cs" Link="LegacyBridge\BoardController.cs" />
+    <Compile Include="..\..\..\board-controller\ComPortDiscovery.cs" Link="LegacyBridge\ComPortDiscovery.cs" />
+    <Compile Include="..\..\..\board-controller\SerialTransport.cs" Link="LegacyBridge\SerialTransport.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\host\BoardApplicationSession.cs" Link="LegacyCodex\BoardApplicationSession.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\host\BoardProtocol.cs" Link="LegacyCodex\BoardProtocol.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\host\CodexMonitorAdapter.cs" Link="LegacyCodex\CodexMonitorAdapter.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\host\QuotaSnapshot.cs" Link="LegacyCodex\QuotaSnapshot.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\host\QuotaProvider.cs" Link="LegacyCodex\QuotaProvider.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\host\CodexProvider.cs" Link="LegacyCodex\CodexProvider.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\protocol\ProtocolEncoder.cs" Link="LegacyCodex\ProtocolEncoder.cs" />
+    <Compile Include="..\..\..\..\..\apps\codex-monitor\protocol\ProtocolParser.cs" Link="LegacyCodex\ProtocolParser.cs" />
+    <Compile Include="..\..\..\..\..\apps\runboard\bridge\RunBoardAdapter.cs" Link="LegacyRunBoard\RunBoardAdapter.cs" />
+  </ItemGroup>
+</Project>
