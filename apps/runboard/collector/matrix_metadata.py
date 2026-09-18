@@ -70,6 +70,14 @@ def _cell_index(cell: Dict[str, Any]) -> Optional[int]:
     return _integer(_cell_value(cell, "index", "cell_index", "cellIndex"))
 
 
+def _plan_version(plan: Dict[str, Any]) -> Optional[str]:
+    return _text(_cell_value(
+        plan,
+        "matrix_version", "matrixVersion", "version",
+        "parent_matrix_version", "parentMatrixVersion",
+    ))
+
+
 def _completion_identity(value: Dict[str, Any]) -> Optional[str]:
     identity = _text(_cell_value(value, "run_id", "runId", "cell_id", "cellId", "id"))
     if identity:
@@ -102,13 +110,14 @@ def _job_name(plan: Dict[str, Any], matrix_version: Optional[str], overrides: Di
     return None, UNKNOWN
 
 
-def _events(text: str) -> Iterable[Tuple[str, int, Dict[str, Any]]]:
-    """Yield marker, root id and JSON object for each marked JSON block."""
+def _events(text: str) -> Iterable[Tuple[str, int, str, Dict[str, Any]]]:
+    """Yield marker, root id, source token and JSON object for each block."""
     marker: Optional[str] = None
     root_id: Optional[int] = None
+    source = "default"
     buffer: List[str] = []
 
-    def flush() -> Optional[Tuple[str, int, Dict[str, Any]]]:
+    def flush() -> Optional[Tuple[str, int, str, Dict[str, Any]]]:
         if marker is None or root_id is None:
             return None
         content = "\n".join(buffer).strip()
@@ -118,11 +127,11 @@ def _events(text: str) -> Iterable[Tuple[str, int, Dict[str, Any]]]:
             value = json.loads(content)
         except (TypeError, ValueError):
             return None
-        return marker, root_id, value if isinstance(value, dict) else {}
+        return marker, root_id, source, value if isinstance(value, dict) else {}
 
     for line in text.splitlines():
         fields = line.split()
-        if len(fields) == 2 and fields[0] in {"__RUNBOARD_MATRIX_PLAN__", "__RUNBOARD_MATRIX_COMPLETION__"}:
+        if len(fields) in {2, 3} and fields[0] in {"__RUNBOARD_MATRIX_PLAN__", "__RUNBOARD_MATRIX_COMPLETION__"}:
             event = flush()
             if event:
                 yield event
@@ -132,6 +141,7 @@ def _events(text: str) -> Iterable[Tuple[str, int, Dict[str, Any]]]:
             except ValueError:
                 marker = None
                 root_id = None
+            source = fields[2] if len(fields) == 3 else "default"
             buffer = []
         elif marker is not None:
             buffer.append(line)
@@ -150,23 +160,36 @@ def parse_matrix_observations(text: str, active_run_ids: Dict[int, str],
     the process working directory.  Missing joins remain unknown.
     """
     overrides = display_name_overrides or {}
-    plans: Dict[int, Dict[str, Any]] = {}
-    completions: Dict[int, List[Dict[str, Any]]] = {}
-    for marker, root_id, value in _events(text):
+    plans: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    completions: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}
+    for marker, root_id, source, value in _events(text):
         if marker == "__RUNBOARD_MATRIX_PLAN__":
-            plans[root_id] = value
+            plans.setdefault(root_id, {})[source] = value
         else:
-            completions.setdefault(root_id, []).append(value)
+            completions.setdefault(root_id, {}).setdefault(source, []).append(value)
 
     result: Dict[int, MatrixMetadata] = {}
-    for root_id, plan in plans.items():
+    for root_id, candidates in plans.items():
+        active_run_id = active_run_ids.get(root_id)
+
+        def candidate_score(item: Tuple[str, Dict[str, Any]]) -> Tuple[bool, int]:
+            _source, candidate = item
+            raw_cells = candidate.get("cells")
+            raw_cells = raw_cells if isinstance(raw_cells, list) else candidate.get("planned_cells")
+            cells = raw_cells if isinstance(raw_cells, list) else []
+            contains_active = any(
+                isinstance(cell, dict) and active_run_id and _cell_identity(cell) == active_run_id
+                for cell in cells
+            )
+            return contains_active, len(cells)
+
+        source, plan = max(candidates.items(), key=candidate_score)
         raw_cells = plan.get("cells")
         cells = raw_cells if isinstance(raw_cells, list) else plan.get("planned_cells")
         cells = cells if isinstance(cells, list) else []
         matrix_total = len(cells) if cells else _integer(plan.get("matrix_total"))
-        matrix_version = _text(_cell_value(plan, "matrix_version", "matrixVersion", "version"))
+        matrix_version = _plan_version(plan)
         job_name, job_source = _job_name(plan, matrix_version, overrides)
-        active_run_id = active_run_ids.get(root_id)
         current_cell: Optional[int] = None
         method: Optional[str] = None
         cell_source = UNKNOWN
@@ -179,9 +202,33 @@ def parse_matrix_observations(text: str, active_run_ids: Dict[int, str],
                 cell_source = RELIABLE
                 break
 
+        selected_ids = {
+            _cell_identity(cell) for cell in cells
+            if isinstance(cell, dict) and _cell_identity(cell)
+        }
+        selected_version = _plan_version(plan)
+        manifest_candidates: List[Dict[str, Any]] = []
+        for candidate_source, candidate in candidates.items():
+            candidate_version = _plan_version(candidate)
+            if selected_version and candidate_version and candidate_version != selected_version:
+                continue
+            raw_candidate_cells = candidate.get("cells")
+            raw_candidate_cells = (
+                raw_candidate_cells if isinstance(raw_candidate_cells, list)
+                else candidate.get("planned_cells")
+            )
+            candidate_cells = raw_candidate_cells if isinstance(raw_candidate_cells, list) else []
+            candidate_ids = {
+                _cell_identity(cell) for cell in candidate_cells
+                if isinstance(cell, dict) and _cell_identity(cell)
+            }
+            if candidate_source != source and selected_ids and not selected_ids.intersection(candidate_ids):
+                continue
+            manifest_candidates.extend(completions.get(root_id, {}).get(candidate_source, []))
+
         seen: set[str] = set()
         completed = 0
-        for ordinal, manifest in enumerate(completions.get(root_id, [])):
+        for ordinal, manifest in enumerate(manifest_candidates):
             if not _completion_is_success(manifest):
                 continue
             identity = _completion_identity(manifest) or "manifest:" + str(ordinal)

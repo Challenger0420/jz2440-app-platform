@@ -81,7 +81,7 @@ namespace Jz2440.Control.Core
                 CompositeApplicationAdapter composite = new CompositeApplicationAdapter();
                 global::BoardController probeController = new global::BoardController(buffered, composite);
                 boardController = probeController;
-                global::BoardControllerMode mode = await Task.Run(() => Probe(probeController), cancellationToken)
+                global::BoardControllerMode mode = await Task.Run(() => Probe(probeController, composite), cancellationToken)
                     .ConfigureAwait(false);
                 if (buffered.IsFaulted) throw new InvalidOperationException("Serial device disconnected during probe.");
 
@@ -93,7 +93,9 @@ namespace Jz2440.Control.Core
                     connectionState = DeviceConnectionState.Connected;
                     message = "Connected · running " + detected + ".";
                     Publish();
-                    StartProviderForCurrent(detected, probeController.TakePendingApplicationData());
+                    string initialData = probeController.TakePendingApplicationData();
+                    if (string.IsNullOrEmpty(initialData)) initialData = composite.PendingApplicationData;
+                    StartProviderForCurrent(detected, initialData);
                     logger.Info("Serial connection established in application mode: " + detected + ".");
                     return;
                 }
@@ -172,14 +174,20 @@ namespace Jz2440.Control.Core
             {
                 AppCardSnapshot target = registry.Snapshot().FirstOrDefault(item => item.Id == appId);
                 if (target == null || !target.CanLaunch)
+                {
+                    logger.Info("Application switch rejected: " + appId + " is not launchable.");
                     return Failure(appId, "UNAVAILABLE", "Application is unavailable.");
+                }
                 if (registry.CurrentAppId == appId)
                     return Success(appId);
 
                 StopProviderSessions();
                 string oldAppId = registry.CurrentAppId;
                 if (string.IsNullOrEmpty(oldAppId))
+                {
+                    logger.Info("Application switch rejected: the current board application is unknown.");
                     return Failure(appId, "CURRENT_UNKNOWN", "Current board application is unknown; reconnect first.");
+                }
 
                 if (oldAppId != "qtopia")
                 {
@@ -193,6 +201,7 @@ namespace Jz2440.Control.Core
                     {
                         registry.Fail(oldAppId, "Stop was not confirmed.");
                         message = "Failed to stop " + oldAppId + ".";
+                        logger.Error("Application stop was not confirmed: " + oldAppId + ".");
                         Publish();
                         return Failure(appId, "STOP_FAILED", message);
                     }
@@ -223,8 +232,32 @@ namespace Jz2440.Control.Core
                 if (!await Task.Run(() => startController.StartApplication(configuration.OperationTimeoutMs), cancellationToken)
                     .ConfigureAwait(false))
                 {
-                    registry.Fail(appId, "APPREADY was not confirmed.");
-                    message = "Failed to start " + appId + ".";
+                    // APPREADY can be missed even though the board did start the
+                    // target. Re-read the real status so Current App stays
+                    // truthful and Retry does not dead-end on Unknown.
+                    string statusAfterStart = null;
+                    try
+                    {
+                        statusAfterStart = await Task.Run(() => QueryBoardStatus(startController, 2), cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception statusError)
+                    {
+                        logger.Error("Board status probe after a failed start failed.", statusError);
+                    }
+                    logger.Error("Application start was not confirmed: " + appId +
+                                 " (board status=" + (statusAfterStart ?? "unavailable") + ").");
+                    if (string.Equals(statusAfterStart, "QTOPIA", StringComparison.Ordinal))
+                    {
+                        registry.SetCurrent("qtopia");
+                        registry.Fail(appId, "APPREADY was not confirmed.");
+                        message = "Failed to start " + appId + "; the board is still at Qtopia.";
+                    }
+                    else
+                    {
+                        registry.Fail(appId, "APPREADY was not confirmed.");
+                        message = "Failed to start " + appId + ".";
+                    }
                     Publish();
                     return Failure(appId, "START_FAILED", message);
                 }
@@ -232,10 +265,15 @@ namespace Jz2440.Control.Core
                 string pending = startController.TakePendingApplicationData();
                 try
                 {
-                    StartProviderForTarget(appId, pending);
+                    // Starting a provider waits for the first provider frame.
+                    // Keep that wait off the UI thread so a slow first frame
+                    // cannot make the window look hung during a switch.
+                    await Task.Run(() => StartProviderForTarget(appId, pending), cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 catch (Exception providerError)
                 {
+                    string providerReason = DescribeError(providerError);
                     logger.Error("Application provider failed to start.", providerError);
                     bool stopped = await Task.Run(() => StopApplicationConfirmed(startController), cancellationToken)
                         .ConfigureAwait(false);
@@ -244,8 +282,8 @@ namespace Jz2440.Control.Core
                         registry.SetCurrent("qtopia");
                         // Keep the failed target visible as retryable after
                         // the board has been safely recovered to Qtopia.
-                        registry.Fail(appId, providerError.Message);
-                        message = "Provider unavailable; recovered to Qtopia.";
+                        registry.Fail(appId, providerReason);
+                        message = "Provider unavailable (" + providerReason + "); recovered to Qtopia.";
                     }
                     else
                     {
@@ -260,6 +298,7 @@ namespace Jz2440.Control.Core
                 boardController = startController;
                 registry.CompleteStart(appId);
                 message = "Running " + appId + ".";
+                logger.Info("Application switch completed: " + appId + ".");
                 Publish();
                 return Success(appId);
             }
@@ -292,31 +331,67 @@ namespace Jz2440.Control.Core
         {
             if (disposed) return;
             disposed = true;
+            // Closing Control is a host-side detach operation. It must never
+            // send an application stop frame or change the board's current
+            // application. Providers are stopped first so no worker can write
+            // after the COM handle is released.
             StopProviderSessions();
             CloseTransportAsync().GetAwaiter().GetResult();
             operationLock.Dispose();
         }
 
-        private global::BoardControllerMode Probe(global::BoardController controller)
+        private global::BoardControllerMode Probe(global::BoardController controller, CompositeApplicationAdapter composite)
         {
             global::BoardControllerMode mode = controller.Observe(1200);
             if (mode == global::BoardControllerMode.Application) return mode;
             string marker = "JZ2440_CONTROL_PROBE_" + DateTime.UtcNow.Ticks.ToString();
-            return controller.SyncConsole(marker, configuration.OperationTimeoutMs)
-                ? global::BoardControllerMode.Console
-                : global::BoardControllerMode.Unknown;
+            if (controller.SyncConsole(marker, configuration.OperationTimeoutMs))
+                return global::BoardControllerMode.Console;
+            if (controller.Mode == global::BoardControllerMode.Application)
+                return global::BoardControllerMode.Application;
+
+            ApplicationAttachProbeResult attached = ApplicationAttachProbe.TryDetect(
+                transport, configuration, logger);
+            if (attached != null)
+            {
+                composite.SetDetectedApp(attached.AppId, attached.InitialData);
+                controller.ConfirmApplicationMode();
+                return global::BoardControllerMode.Application;
+            }
+            return global::BoardControllerMode.Unknown;
         }
 
         private string QueryBoardStatus(global::BoardController controller)
         {
+            return QueryBoardStatus(controller, 5);
+        }
+
+        private string QueryBoardStatus(global::BoardController controller, int attempts)
+        {
             string lastStatus = null;
-            for (int attempt = 0; attempt < 5; attempt++)
+            for (int attempt = 0; attempt < Math.Max(1, attempts); attempt++)
             {
                 lastStatus = controller.QueryStatus(2000);
                 if (!string.IsNullOrEmpty(lastStatus) && lastStatus != "STOPPED") return lastStatus;
                 Thread.Sleep(500);
             }
             return lastStatus;
+        }
+
+        // User-visible failure text stays short and free of nested wrapper
+        // noise; the detailed exception is still written by the caller.
+        private static string DescribeError(Exception error)
+        {
+            Exception current = error;
+            while (current is AggregateException && current.InnerException != null)
+                current = current.InnerException;
+            if (current == null) return "unknown error";
+            string detail = (current.Message ?? string.Empty)
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Trim();
+            if (detail.Length > 160) detail = detail.Substring(0, 160) + "...";
+            return detail.Length == 0 ? current.GetType().Name : current.GetType().Name + ": " + detail;
         }
 
         private bool StopApplicationConfirmed(global::BoardController controller)
@@ -348,7 +423,7 @@ namespace Jz2440.Control.Core
         {
             if (appId == "codex-monitor")
             {
-                codexProvider = new CodexApplicationProviderSession(transport, logger,
+                codexProvider = new CodexApplicationProviderSession(transport, configuration, logger,
                     error => OnProviderFault(appId, error));
                 codexProvider.Start(initialData);
             }
@@ -503,6 +578,13 @@ namespace Jz2440.Control.Core
             public string StartCommand { get { return string.Empty; } }
             public string StopCommand { get { return string.Empty; } }
             public string DetectedAppId { get; private set; }
+            public string PendingApplicationData { get; private set; }
+
+            public void SetDetectedApp(string appId, string initialData)
+            {
+                DetectedAppId = appId;
+                PendingApplicationData = initialData;
+            }
 
             public bool IsApplicationTraffic(string line)
             {

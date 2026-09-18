@@ -38,6 +38,14 @@ namespace Jz2440.Control
             reconnectTimer.Tick += ReconnectTimerOnTick;
             AppRegistry registry = AppRegistry.CreateDefault();
             ILogger logger = new FileLogger();
+            string configurationSource = string.Equals(ConfigurationStore.LastLoadedPath,
+                ConfigurationStore.GetExecutableSidecarPath(), StringComparison.OrdinalIgnoreCase)
+                ? "exe-sidecar"
+                : "LocalAppData";
+            logger.Info("Configuration loaded from " + configurationSource + "; RunBoardStateScript configured=" +
+                (!string.IsNullOrWhiteSpace(configuration.RunBoardStateScript) ? "yes" : "no") + ".");
+            if (!string.IsNullOrWhiteSpace(ConfigurationStore.LastLoadDiagnostic))
+                logger.Error(ConfigurationStore.LastLoadDiagnostic);
             IDeviceConnection device = string.Equals(configuration.BackendMode, "serial", StringComparison.OrdinalIgnoreCase)
                 ? (IDeviceConnection)new SerialDeviceConnection(registry, logger, null, configuration)
                 : new MockDeviceConnection(registry, logger);

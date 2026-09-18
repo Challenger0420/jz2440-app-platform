@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.Serialization.Json;
@@ -12,9 +13,15 @@ public sealed class RealCodexProvider : IQuotaProvider
     private readonly DataContractJsonSerializer responseSerializer =
         new DataContractJsonSerializer(typeof(RpcRateLimitsResponse));
 
-    public RealCodexProvider()
+    public RealCodexProvider() : this(null)
     {
-        string codexPath = ResolveCodexExecutable();
+    }
+
+    public RealCodexProvider(string configuredExecutable)
+    {
+        string codexPath = ResolveCodexExecutable(configuredExecutable,
+            Environment.GetEnvironmentVariable("PATH"),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
 
         ProcessStartInfo startInfo = new ProcessStartInfo
         {
@@ -28,6 +35,7 @@ public sealed class RealCodexProvider : IQuotaProvider
             StandardErrorEncoding = new UTF8Encoding(false),
             RedirectStandardError = true
         };
+        AddExecutableDirectoryToPath(startInfo, codexPath);
 
         process = Process.Start(startInfo);
         if (process == null)
@@ -47,11 +55,19 @@ public sealed class RealCodexProvider : IQuotaProvider
 
     internal static string ResolveCodexExecutable()
     {
-        string configured = Environment.GetEnvironmentVariable("CODEX_EXECUTABLE");
-        if (!String.IsNullOrEmpty(configured))
-            return configured;
+        return ResolveCodexExecutable(
+            Environment.GetEnvironmentVariable("CODEX_EXECUTABLE"),
+            Environment.GetEnvironmentVariable("PATH"),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+    }
 
-        string path = Environment.GetEnvironmentVariable("PATH");
+    internal static string ResolveCodexExecutable(string configured, string path, string localAppData)
+    {
+        if (!String.IsNullOrEmpty(configured))
+        {
+            if (File.Exists(configured)) return Path.GetFullPath(configured);
+        }
+
         if (!String.IsNullOrEmpty(path))
         {
             string[] directories = path.Split(Path.PathSeparator);
@@ -67,7 +83,54 @@ public sealed class RealCodexProvider : IQuotaProvider
                 }
             }
         }
+
+        string installed = FindUserInstalledCodex(localAppData);
+        if (!String.IsNullOrEmpty(installed)) return installed;
         return "codex";
+    }
+
+    private static string FindUserInstalledCodex(string localAppData)
+    {
+        if (String.IsNullOrEmpty(localAppData)) return null;
+        string installRoot = Path.Combine(localAppData, "OpenAI", "Codex", "bin");
+        if (!Directory.Exists(installRoot)) return null;
+
+        List<string> directories = new List<string> { installRoot };
+        try
+        {
+            directories.AddRange(Directory.GetDirectories(installRoot));
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        string[] names = { "codex.exe", "codex.cmd", "codex.bat", "codex" };
+        List<string> candidates = new List<string>();
+        foreach (string directory in directories)
+            foreach (string name in names)
+            {
+                string candidate = Path.Combine(directory, name);
+                if (File.Exists(candidate)) candidates.Add(candidate);
+            }
+        candidates.Sort(delegate(string left, string right)
+        {
+            DateTime leftTime = File.GetLastWriteTimeUtc(left);
+            DateTime rightTime = File.GetLastWriteTimeUtc(right);
+            return rightTime.CompareTo(leftTime);
+        });
+        return candidates.Count == 0 ? null : Path.GetFullPath(candidates[0]);
+    }
+
+    private static void AddExecutableDirectoryToPath(ProcessStartInfo startInfo, string executable)
+    {
+        if (startInfo == null || String.IsNullOrEmpty(executable) || executable.IndexOf(Path.DirectorySeparatorChar) < 0)
+            return;
+        string directory = Path.GetDirectoryName(executable);
+        if (String.IsNullOrEmpty(directory)) return;
+        string current = startInfo.EnvironmentVariables["PATH"];
+        if (String.IsNullOrEmpty(current))
+            startInfo.EnvironmentVariables["PATH"] = directory;
+        else if (current.IndexOf(directory, StringComparison.OrdinalIgnoreCase) < 0)
+            startInfo.EnvironmentVariables["PATH"] = directory + Path.PathSeparator + current;
     }
 
     public QuotaSnapshot ReadQuota()

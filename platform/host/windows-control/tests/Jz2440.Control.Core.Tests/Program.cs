@@ -19,6 +19,8 @@ namespace Jz2440.Control.Core.Tests
                 ProtocolFrames();
                 CodexSessionFraming();
                 BufferedTransportLifecycle();
+                ConsoleMarkerHandling();
+                ApplicationAttachProbeTests();
                 await MockConnectionScenarios();
                 Console.WriteLine("JZ2440 Control core tests: PASS");
                 return 0;
@@ -207,6 +209,63 @@ namespace Jz2440.Control.Core.Tests
             throw new InvalidOperationException(name + " did not arrive before timeout");
         }
 
+        // The board console echoes the typed command line, so the marker also
+        // appears inside the echo of "echo <marker>". Only the shell's own
+        // output line proves that the console is actually usable.
+        private static void ConsoleMarkerHandling()
+        {
+            EchoTransport echoOnly = new EchoTransport();
+            BoardController echoController = new BoardController(echoOnly, new CodexMonitorAdapter());
+            Assert(!echoController.SyncConsole("JZ2440_TEST_MARKER", 400),
+                "echoed command line must not count as a console sync");
+            Assert(echoOnly.Writes.Count == 1, "console sync writes exactly one probe command");
+
+            EchoTransport withOutput = new EchoTransport { EmitCommandOutput = true };
+            BoardController outputController = new BoardController(withOutput, new CodexMonitorAdapter());
+            Assert(outputController.SyncConsole("JZ2440_TEST_MARKER", 2000),
+                "shell output line confirms the console");
+        }
+
+        private static void ApplicationAttachProbeTests()
+        {
+            AttachProbeTransport runboard = new AttachProbeTransport("runboard");
+            ApplicationAttachProbeResult detectedRunBoard = ApplicationAttachProbe.TryDetect(
+                runboard, new AppConfiguration { OperationTimeoutMs = 100 }, new NullLogger());
+            Assert(detectedRunBoard != null && detectedRunBoard.AppId == "runboard",
+                "RunBoard attach probe did not recognize RBDBG");
+
+            AttachProbeTransport codex = new AttachProbeTransport("codex-monitor");
+            ApplicationAttachProbeResult detectedCodex = ApplicationAttachProbe.TryDetect(
+                codex, new AppConfiguration { OperationTimeoutMs = 100 }, new NullLogger());
+            Assert(detectedCodex != null && detectedCodex.AppId == "codex-monitor" &&
+                   detectedCodex.InitialData == "<CQMREQ|V=1>\n",
+                "Codex attach probe did not preserve the request frame");
+        }
+
+        private sealed class EchoTransport : ISerialTransport
+        {
+            private readonly Queue<string> incoming = new Queue<string>();
+            public readonly List<string> Writes = new List<string>();
+            public bool EmitCommandOutput { get; set; }
+            public string PortName { get { return "echo"; } }
+
+            public void Write(string frame)
+            {
+                Writes.Add(frame);
+                string command = (frame ?? string.Empty).TrimEnd('\r', '\n');
+                incoming.Enqueue(command + "\r\n");
+                if (EmitCommandOutput && command.StartsWith("echo ", StringComparison.Ordinal))
+                    incoming.Enqueue(command.Substring("echo ".Length) + "\r\n");
+            }
+
+            public string ReadAvailable()
+            {
+                return incoming.Count == 0 ? string.Empty : incoming.Dequeue();
+            }
+
+            public void Dispose() { }
+        }
+
         private static async Task MockConnectionScenarios()
         {
             AppRegistry registry = AppRegistry.CreateDefault();
@@ -292,6 +351,34 @@ namespace Jz2440.Control.Core.Tests
             public string ReadAvailable()
             {
                 lock (gate) return incoming.Count == 0 ? string.Empty : incoming.Dequeue();
+            }
+
+            public void Dispose() { }
+        }
+
+        private sealed class AttachProbeTransport : ISerialTransport
+        {
+            private readonly Queue<string> incoming = new Queue<string>();
+            private readonly string application;
+            public string PortName { get { return "probe"; } }
+
+            public AttachProbeTransport(string applicationId)
+            {
+                application = applicationId;
+            }
+
+            public void Write(string frame)
+            {
+                if (frame.StartsWith("RB1|", StringComparison.Ordinal))
+                {
+                    if (application == "runboard") incoming.Enqueue("RBDBG|phase=PARSED|parse=FAIL|\n");
+                    else incoming.Enqueue("<CQMREQ|V=1>\n");
+                }
+            }
+
+            public string ReadAvailable()
+            {
+                return incoming.Count == 0 ? string.Empty : incoming.Dequeue();
             }
 
             public void Dispose() { }

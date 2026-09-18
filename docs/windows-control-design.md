@@ -7,7 +7,7 @@
 - Windows 端已落地为 .NET 8 WinForms 的 `JZ2440 Control.exe`。
 - RunBoard 已有 target、`app.conf`、统一 adapter/provider 和真实协议接入，并已通过真实硬件 smoke。
 - 正常运行时 `JZ2440 Control.exe` 是唯一 Windows UART owner；旧 Bridge 仅保留为诊断/兼容工具。
-- 当前仍不新增板端 `appd`；`appctl` 继续承担板端 lifecycle supervisor 职责。RunBoard 静默运行时的拔插重连状态握手留作后续协议增强。
+- 当前仍不新增板端 `appd`；`appctl` 继续承担板端 lifecycle supervisor 职责。Control 通过现有 Codex/RunBoard 协议做 host-side attach 探测，不修改板端协议。
 
 ## 1. 设计结论
 
@@ -382,7 +382,7 @@ UI 只显示简短、可行动的错误；详细原因写入本地轮转日志�
 
 ## 11. 配置、日志与隐私
 
-建议运行时配置放在当前用户的 LocalAppData 下，例如由程序根据 Windows 标准 API 定位 `JZ2440Control/config.json`；仓库只提交脱敏的 `config.example.json`。
+运行时配置优先放在当前用户的 LocalAppData 下，例如由程序根据 Windows 标准 API 定位 `JZ2440Control/config.json`；桌面发布版允许 exe 同目录的 `JZ2440Control.config.json` 作为本地 fallback，以应对桌面进程偶发的 LocalAppData 可见性问题。仓库只提交脱敏的 `config.example.json`，不提交任何本地 fallback。
 
 配置字段建议：
 
@@ -461,6 +461,7 @@ Phase 1 MVP 当时不包含 RunBoard 的真实启动、真正的 board-side `APP
 - RunBoard 已注册到板端 app registry，并通过统一 adapter、provider 和卡片模型接入。
 - Qtopia、Codex Monitor、RunBoard 已在同一 Control transport 上完成切换 smoke；CQM1 和 RB1 由活动 provider 分时承载。
 - 旧 `CodexQuotaBridge` / `RunBoardBridge` 保留为 diagnostic/compatibility tools，不能与 Control 并行占用同一 UART。
+- Control 正常关闭时只停止 Windows 侧 provider 并释放 UART，不发送板端应用停止命令，也不改变当前应用。下一次启动先探测 console/Qtopia；若板端仍在运行 Codex Monitor 或 RunBoard，则通过各自协议的只读流量重新识别并恢复 provider，RunBoard 探测不会触发 LCD 绘制。物理断线或异常终止仍保持 fail-closed，不猜测也不自动恢复上一次应用。
 
 ### Phase 6：现场最终验收（已完成）
 
@@ -479,7 +480,7 @@ Phase 1 MVP 当时不包含 RunBoard 的真实启动、真正的 board-side `APP
 6. **.NET 迁移风险**：现有源码是无 namespace 的旧 csc 编译布局，迁移到 .NET 8 需要处理 `System.Management` 引用、WinForms target 和项目边界，但不应借机大范围重构。
 7. **配置泄露风险**：默认端口、真实路径、服务器地址和凭据很容易被写入示例或截图；需要在代码 review 和日志测试中明确禁止。
 8. **Qtopia 恢复风险**：应用停止不是等同于 Qtopia 已恢复；必须等待明确证据，失败时不能自动反复 kill/launch。
-9. **重连误操作风险**：串口重插后不能把上一次的“启动”重放，否则可能产生重复进程或破坏当前板端状态；RunBoard 静默运行时应继续保持 Unknown/fail-closed，直到后续增加安全握手。
+9. **重连误操作风险**：串口重插后不能把上一次的“启动”重放，否则可能产生重复进程或破坏当前板端状态；当前通过 console marker、Codex `CQMREQ` 和合法 RB1/RBDBG 探测识别已有应用，探测失败仍保持 Unknown/fail-closed。
 10. **现有工作区 dirty 风险**：当前目录重组尚未提交，后续实现前要再次确认文件归属和主线，不能用 reset/checkout 清理。
 
 ## 15. 现有组件复用清单

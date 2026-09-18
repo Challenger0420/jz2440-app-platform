@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -9,6 +10,7 @@ namespace Jz2440.Control.Core
     internal sealed class CodexApplicationProviderSession : IDisposable
     {
         private readonly global::ISerialTransport transport;
+        private readonly AppConfiguration configuration;
         private readonly ILogger logger;
         private readonly Action<Exception> faulted;
         private readonly CancellationTokenSource cancellation = new CancellationTokenSource();
@@ -17,9 +19,11 @@ namespace Jz2440.Control.Core
         private global::IQuotaProvider provider;
         private bool disposed;
 
-        public CodexApplicationProviderSession(global::ISerialTransport serial, ILogger appLogger, Action<Exception> onFault)
+        public CodexApplicationProviderSession(global::ISerialTransport serial, AppConfiguration appConfiguration,
+                                               ILogger appLogger, Action<Exception> onFault)
         {
             transport = serial;
+            configuration = appConfiguration ?? new AppConfiguration();
             logger = appLogger ?? new NullLogger();
             faulted = onFault;
             boardSession = new global::BoardApplicationSession(transport, ReadQuota);
@@ -91,7 +95,7 @@ namespace Jz2440.Control.Core
 
         private global::QuotaSnapshot ReadQuota()
         {
-            if (provider == null) provider = new global::RealCodexProvider();
+            if (provider == null) provider = new global::RealCodexProvider(configuration.CodexExecutable);
             return provider.ReadQuota();
         }
 
@@ -210,6 +214,8 @@ namespace Jz2440.Control.Core
         private readonly AppConfiguration configuration;
         private readonly ILogger logger;
         private readonly CancellationTokenSource readCancellation = new CancellationTokenSource();
+        private readonly object providerErrorGate = new object();
+        private readonly Queue<string> providerErrors = new Queue<string>();
         private Process process;
         private bool disposed;
 
@@ -223,7 +229,7 @@ namespace Jz2440.Control.Core
         {
             string script = ResolveScript(configuration.RunBoardStateScript);
             if (script == null)
-                throw new InvalidOperationException("RunBoard state provider script is not configured.");
+                throw new InvalidOperationException(DescribeMissingScript());
 
             ProcessStartInfo info = new ProcessStartInfo
             {
@@ -240,7 +246,19 @@ namespace Jz2440.Control.Core
             info.ArgumentList.Add("--live-worker");
             process = Process.Start(info);
             if (process == null) throw new InvalidOperationException("RunBoard state provider did not start.");
-            process.ErrorDataReceived += delegate { };
+            // The worker reports provider and configuration failures on stderr.
+            // Keep the tail locally so a failed start can be explained instead
+            // of surfacing only "provider unavailable" to the operator.
+            process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs args)
+            {
+                if (args == null || string.IsNullOrWhiteSpace(args.Data)) return;
+                lock (providerErrorGate)
+                {
+                    providerErrors.Enqueue(args.Data.Trim());
+                    while (providerErrors.Count > 6) providerErrors.Dequeue();
+                }
+                logger.Error("RunBoard state provider stderr: " + args.Data.Trim());
+            };
             process.BeginErrorReadLine();
         }
 
@@ -248,19 +266,37 @@ namespace Jz2440.Control.Core
         {
             Process current = process;
             if (disposed || current == null) throw new ObjectDisposedException(GetType().Name);
-            if (current.HasExited) throw new InvalidOperationException("RunBoard state provider exited.");
+            if (current.HasExited) throw new InvalidOperationException("RunBoard state provider exited." + DescribeProviderFailure());
             current.StandardInput.WriteLine(sequence.ToString());
             current.StandardInput.Flush();
             Task<string> read = current.StandardOutput.ReadLineAsync(readCancellation.Token).AsTask();
-            if (!read.Wait(30000))
+            // A cold first frame has to query the server (SSH) and the Codex
+            // quota provider before it can be encoded, so a short fixed wait
+            // turned a slow-but-healthy start into a switch failure.
+            int timeout = Math.Max(5000, configuration.RunBoardFrameTimeoutMs);
+            if (!read.Wait(timeout))
             {
                 Dispose();
-                throw new TimeoutException("RunBoard state provider timed out.");
+                throw new TimeoutException("RunBoard state provider timed out after " + timeout + " ms." + DescribeProviderFailure());
             }
             string line = read.Result;
             if (string.IsNullOrEmpty(line) || !line.StartsWith("RB1|", StringComparison.Ordinal))
-                throw new InvalidOperationException("RunBoard state provider returned an invalid frame.");
+                throw new InvalidOperationException("RunBoard state provider returned an invalid frame." + DescribeProviderFailure());
             return line + "\n";
+        }
+
+        private string DescribeProviderFailure()
+        {
+            lock (providerErrorGate)
+            {
+                if (providerErrors.Count == 0) return string.Empty;
+                string detail = string.Join(" | ", providerErrors.ToArray())
+                    .Replace('\r', ' ')
+                    .Replace('\n', ' ')
+                    .Trim();
+                if (detail.Length > 120) detail = detail.Substring(0, 120) + "...";
+                return " Worker reported: " + detail;
+            }
         }
 
         public void Dispose()
@@ -291,6 +327,45 @@ namespace Jz2440.Control.Core
                 }
             }
             return null;
+        }
+
+        // Report why the worker could not be resolved instead of a single
+        // ambiguous "not configured" that hid a missing file, an unreadable
+        // path or an empty setting behind the same text.
+        private string DescribeMissingScript()
+        {
+            string configured = configuration.RunBoardStateScript;
+            string configNote = ConfigurationStore.LastLoadDiagnostic == null
+                ? "config=" + ConfigurationStore.GetPath()
+                : ConfigurationStore.LastLoadDiagnostic;
+            if (string.IsNullOrWhiteSpace(configured))
+                return "RunBoard state provider script is not configured: RunBoardStateScript is empty (" + configNote + ").";
+            return "RunBoard state provider script is unusable: " + DescribePath(configured) + " (" + configNote + ").";
+        }
+
+        private static string DescribePath(string path)
+        {
+            try
+            {
+                File.GetAttributes(path);
+                return "\"" + path + "\" exists but the path was not resolved";
+            }
+            catch (FileNotFoundException)
+            {
+                return "\"" + path + "\" does not exist";
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return "\"" + path + "\" does not exist";
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return "\"" + path + "\" is not readable (access denied)";
+            }
+            catch (Exception error)
+            {
+                return "\"" + path + "\" is unavailable (" + error.GetType().Name + ": " + error.Message + ")";
+            }
         }
 
         private static string FindRoot(string script)

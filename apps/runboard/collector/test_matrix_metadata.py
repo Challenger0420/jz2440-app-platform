@@ -56,6 +56,47 @@ class MatrixMetadataTests(unittest.TestCase):
         self.assertEqual(metadata.field_sources["current_cell"], UNKNOWN)
         self.assertEqual(metadata.field_sources["matrix_completed"], UNKNOWN)
 
+    def test_active_shard_selects_matching_parent_plan_and_manifests(self):
+        shard = {
+            "matrix_version": "prompt-horizontal-formal-45-v1",
+            "parent_matrix_version": "prompt-horizontal-formal-45-v1",
+            "parent_cell_indices": list(range(31, 46)),
+            "cells": [
+                {"index": 31, "run_id": "cell_031", "method_name": "PromptFL-style-CD"},
+                {"index": 32, "run_id": "cell_032", "method_name": "PromptFL-style-CD"},
+            ],
+        }
+        parent = {
+            "matrix_version": "prompt-horizontal-formal-45-v1",
+            "cells": [
+                {"index": index, "run_id": "cell_{:03d}".format(index), "method_name": "PromptFL-style-CD"}
+                for index in range(1, 46)
+            ],
+        }
+        completion_lines = "\n".join(
+            "__RUNBOARD_MATRIX_COMPLETION__ 123 parent\n" + json.dumps({"cell_index": index, "status": "completed"})
+            for index in range(1, 10)
+        )
+        text = "\n".join((
+            "__RUNBOARD_MATRIX_PLAN__ 123 shard",
+            json.dumps(shard),
+            "__RUNBOARD_MATRIX_COMPLETION__ 123 shard",
+            json.dumps({"cell_index": 31, "status": "completed"}),
+            "__RUNBOARD_MATRIX_PLAN__ 123 parent",
+            json.dumps(parent),
+            completion_lines,
+        ))
+        metadata = parse_matrix_observations(
+            text,
+            {123: "cell_031"},
+            {"prompt-horizontal-formal-45-v1": "Prompt Horizontal Formal V6"},
+        )[123]
+        self.assertEqual(metadata.job_name, "Prompt Horizontal Formal V6")
+        self.assertEqual(metadata.matrix_total, 45)
+        self.assertEqual(metadata.current_cell, 31)
+        self.assertEqual(metadata.matrix_completed, 10)
+        self.assertEqual(metadata.method, "PromptFL-style-CD")
+
 
 if __name__ == "__main__":
     unittest.main()

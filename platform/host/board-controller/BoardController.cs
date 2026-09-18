@@ -46,7 +46,11 @@ public sealed class BoardController
             IList<string> lines = ReadLines(serial.ReadAvailable());
             foreach (string line in lines)
             {
-                if (application.IsApplicationTraffic(line)) Mode = BoardControllerMode.Application;
+                if (application.IsApplicationTraffic(line))
+                {
+                    pending.Append(line);
+                    Mode = BoardControllerMode.Application;
+                }
                 else if (!application.IsReady(line) && !application.IsStopped(line) && line.Trim().Length != 0 &&
                          Mode != BoardControllerMode.Application)
                     Mode = BoardControllerMode.Console;
@@ -66,11 +70,22 @@ public sealed class BoardController
         {
             IList<string> lines = ReadLines(serial.ReadAvailable());
             foreach (string line in lines)
-                if (line.IndexOf(marker, StringComparison.Ordinal) >= 0)
+            {
+                // An application can emit its own request while a console
+                // marker is pending. Preserve the application-mode decision so
+                // attach can continue without sending a lifecycle command.
+                if (application.IsApplicationTraffic(line))
+                {
+                    pending.Append(line);
+                    Mode = BoardControllerMode.Application;
+                    return false;
+                }
+                if (IsMarkerLine(line, marker))
                 {
                     Mode = BoardControllerMode.Console;
                     return true;
                 }
+            }
             Thread.Sleep(25);
         }
         return false;
@@ -151,7 +166,7 @@ public sealed class BoardController
             bool found = false;
             foreach (string line in lines)
             {
-                if (line.IndexOf(marker, StringComparison.Ordinal) >= 0)
+                if (IsMarkerLine(line, marker))
                 {
                     found = true;
                     break;
@@ -178,7 +193,7 @@ public sealed class BoardController
             IList<string> lines = ReadLines(serial.ReadAvailable());
             foreach (string line in lines)
             {
-                if (line.IndexOf(marker, StringComparison.Ordinal) >= 0) return null;
+                if (IsMarkerLine(line, marker)) return null;
                 string value = line.Trim();
                 if (value == "QTOPIA" || value == "STOPPED" || value.StartsWith("APP ", StringComparison.Ordinal))
                     return value;
@@ -186,6 +201,16 @@ public sealed class BoardController
             Thread.Sleep(25);
         }
         return null;
+    }
+
+    // The serial console echoes the command line that was typed, so a marker
+    // also appears in the echo of "echo <marker>". Accepting that echo made
+    // every console sync succeed before the shell had run anything, which let
+    // Control queue the next lifecycle command while the board was still busy.
+    // Only the shell's own output line proves the console is actually usable.
+    private static bool IsMarkerLine(string line, string marker)
+    {
+        return line != null && line.Trim() == marker;
     }
 
     private IList<string> ReadLines(string incoming)

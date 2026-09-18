@@ -86,7 +86,14 @@ def _metadata_command(cells: Dict[int, str]) -> str:
 
 
 def _matrix_metadata_command(cells: Dict[int, str]) -> str:
-    """Emit marked matrix JSON using only ``cat``/``find`` read operations."""
+    """Emit matrix plans and manifests using read-only shell commands.
+
+    Some accepted experiments keep the active cell in a shard plan such as
+    ``formal_kgcoop_shard_plan.json`` while the authoritative 45-cell plan is
+    a sibling ``formal_matrix_plan.json``.  Emit both candidates with a
+    source token; the parser chooses the candidate containing the active
+    run_id and prefers the larger authoritative plan.
+    """
     roots: Dict[str, int] = {}
     for root_pid, cell in sorted(cells.items()):
         matrix_root = matrix_root_from_cell(cell)
@@ -94,16 +101,33 @@ def _matrix_metadata_command(cells: Dict[int, str]) -> str:
             roots[matrix_root] = root_pid
     chunks: List[str] = []
     for matrix_root, root_pid in sorted(roots.items(), key=lambda item: item[1]):
-        quoted = shlex.quote(matrix_root)
+        quoted_root = shlex.quote(matrix_root)
+        parent_root = shlex.quote(str(PurePosixPath(matrix_root).parent))
+        chunks.append("plan_source=0")
         chunks.append(
-            "printf '__RUNBOARD_MATRIX_PLAN__ %s\\n' '{}'; "
-            "cat {}/formal_matrix_plan.json 2>/dev/null || true".format(root_pid, quoted)
+            "for plan in $(find {root} -maxdepth 1 -type f "
+            "\\( -name 'formal_matrix_plan.json' -o -name '*shard*plan*.json' \\) "
+            "-print 2>/dev/null); do "
+            "printf '__RUNBOARD_MATRIX_PLAN__ {pid} p%s\\n' \"$plan_source\"; "
+            "cat \"$plan\" 2>/dev/null || true; "
+            "plan_dir=${{plan%/*}}; "
+            "for manifest in \"$plan_dir\"/cells/*/completion_manifest.json; do "
+            "if [ -f \"$manifest\" ]; then "
+            "printf '__RUNBOARD_MATRIX_COMPLETION__ {pid} p%s\\n' \"$plan_source\"; "
+            "cat \"$manifest\"; fi; done; "
+            "plan_source=$((plan_source+1)); done".format(root=quoted_root, pid=root_pid)
         )
         chunks.append(
-            "for manifest in {}/cells/*/completion_manifest.json; do "
+            "for plan in $(find {parent} -maxdepth 2 -type f "
+            "-name 'formal_matrix_plan.json' -print 2>/dev/null); do "
+            "printf '__RUNBOARD_MATRIX_PLAN__ {pid} p%s\\n' \"$plan_source\"; "
+            "cat \"$plan\" 2>/dev/null || true; "
+            "plan_dir=${{plan%/*}}; "
+            "for manifest in \"$plan_dir\"/cells/*/completion_manifest.json; do "
             "if [ -f \"$manifest\" ]; then "
-            "printf '__RUNBOARD_MATRIX_COMPLETION__ %s\\n' '{}'; cat \"$manifest\"; "
-            "fi; done".format(quoted, root_pid)
+            "printf '__RUNBOARD_MATRIX_COMPLETION__ {pid} p%s\\n' \"$plan_source\"; "
+            "cat \"$manifest\"; fi; done; "
+            "plan_source=$((plan_source+1)); done".format(parent=parent_root, pid=root_pid)
         )
     return "\n".join(chunks) or "printf '%s\\n' '__RUNBOARD_MATRIX_EMPTY__'"
 

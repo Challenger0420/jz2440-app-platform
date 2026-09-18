@@ -34,5 +34,5 @@
 ## D. 已知非阻塞事项
 
 - RunBoard 的 `server offline` 是服务器数据源状态，不代表 RunBoard lifecycle 或 RB1 provider 启动失败；本次 RunBoard 卡片、Current App 和 LCD 均已正确运行。
-- 如果在 RunBoard 静默运行期间直接拔出 USB，现有板端协议没有主动状态回报，Control 会 fail-closed 为 Unknown/Error，不会盲目恢复 provider；这不影响本次从 Qtopia 开始的 MVP 拔插验收。后续如需支持该场景，应增加安全的板端状态/握手协议。
+- 本文记录的现场验收是在 host-side attach 探测加入前完成的；当时如果在 RunBoard 静默运行期间直接拔出 USB，Control 会 fail-closed 为 Unknown/Error。当前实现已增加不触发 LCD 绘制的 RB1 形状/RBDBG attach 探测，不修改板端协议；仍需在下一次现场窗口专门复验该场景。
 - RunBoard Python worker 的封装、安装包和自启动仍属于后续增强项。

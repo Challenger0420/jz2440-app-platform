@@ -280,4 +280,74 @@ Phase 2 结果仍不要求 `appd`：
 
 ### 12.5 最终现场边界
 
-最终现场验收已完成，详细结果记录在 `docs/windows-control-final-acceptance.md`。本次物理拔插从 Qtopia 状态开始并通过；RunBoard 在静默运行期间缺少主动状态回报，因此该特殊场景仍保持 fail-closed，不通过猜测恢复 provider。
+最终现场验收已完成，详细结果记录在 `docs/windows-control-final-acceptance.md`。本次物理拔插从 Qtopia 状态开始并通过；此前对静默 RunBoard 场景保持 fail-closed。2026-09-18 起增加 host-side attach 探测，关闭后重开和重连时可通过 RB1/RBDBG 重新接管，仍不发送生命周期停止命令。
+
+## 13. RunBoard provider 启动失败的现场修复（2026-09-15）
+
+### 13.1 现象
+
+现场通过 GUI 从 Qtopia 或 Codex Monitor 切到 RunBoard 时，板端 RunBoard 已经真正启动
+（LCD 显示 RunBoard 画面与 OFFLINE 徽标），但 Windows 端 RunBoard 卡片变成 Failed，
+底部显示 PROVIDER_FAILED: Provider unavailable; recovered to Qtopia.；Current App 回到
+Qtopia。随后点击 Retry 没有反应，因为此时 Current App 已被清空。
+
+### 13.2 定位（只读审计 + 运行中实例状态）
+
+1. RunBoardApplicationProviderSession.Start() 在切换过程中同步等待第一个 RB1 帧，硬上限
+   30 秒。冷启动首帧需要先完成 SSH 服务器探测和 Codex quota 采集，超过上限即抛异常，
+   触发 fail-closed 回退 Qtopia，目标卡片按设计保留 Failed/Retry。
+2. 该失败路径没有写日志，worker 的 stderr 被丢弃（ErrorDataReceived += delegate { }），
+   因此现场只看到 provider unavailable，无法判断是超时、worker 退出还是无效帧。
+3. 失败后 currentAppId 被清空，Retry 立即返回 CURRENT_UNKNOWN，用户看到“点击无效”。
+4. BoardController 的 SyncConsole/ListApplications/QueryStatus 原本用 IndexOf(marker) 判定，
+   而串口 console 会回显 echo <marker> 命令行本身，导致同步判定在 shell 真正执行前就成立，
+   可能在板端仍然忙时继续下发下一条 lifecycle 命令。
+5. Qtopia→RunBoard 路径没有前置 await，provider 首帧等待运行在 UI 线程上，等待期间窗口无响应。
+
+### 13.3 修复
+
+- provider 首帧等待超时改为配置项 RunBoardFrameTimeoutMs，默认 60 秒（未配置时使用默认值）。
+- RunBoard worker 的 stderr 逐行写入本地 control.log，并把截断摘要附到 provider 异常信息中。
+- provider 失败时的用户可见文案带上真实原因（例如 TimeoutException: ...），不再只有 Provider unavailable。
+- START_FAILED 时重新读取 appctl status：若板端仍是 Qtopia，则恢复 Current App=Qtopia，
+  并保留目标卡片 Failed/Retry，避免界面停在不可操作的 Unknown。
+- 所有切换结果（completed / rejected / stop 未确认 / start 未确认）都写入日志，消除静默失败。
+- console marker 只接受“shell 自己的输出行”（trim 后等于 marker），拒绝命令回显。
+- provider 启动等待移到后台线程，切换期间 UI 不再因首帧等待而卡住。
+
+本次没有修改板端、appctl、Flash、rootfs 或启动链；UART 仍由 JZ2440 Control 独占。
+
+### 13.4 验证
+
+- dotnet restore / dotnet build（Release）：0 警告 0 错误。
+- Core tests：PASS（新增 console marker 回显回归用例）。
+- CodexQuotaBridge.exe / RunBoardBridge.exe：重新编译并 self-test PASS。
+- RunBoard live provider --persistent-dry-run：PASS（SERIAL=NO）。
+- CodexQuotaBridge.exe --provider-test：PASS。
+
+## 14. Control 关闭后的 detach 与重新接管（2026-09-18）
+
+Control 关闭是 Windows 侧 detach，不代表用户要求停止板端应用。关闭顺序为：
+
+1. 停止当前 provider 的本地 worker / 读取循环；
+2. 释放 Windows 侧串口句柄；
+3. 不发送 `<CQMQUIT>`、`<RBQUIT>` 或任何 `appctl stop`。
+
+重新启动 Control 时按以下顺序识别：
+
+1. 用 console marker 确认 appctl/Qtopia console；
+2. 若 console 不响应，等待 Codex Monitor 的 `CQMREQ`，并恢复 Codex provider；
+3. 若仍未识别，发送一帧 RB1 形状但不会触发绘制的探测帧；RunBoard 返回
+   `RBDBG|phase=PARSED|...` 后，Control 认定当前应用为 RunBoard，并立即由真实
+   provider 接管；
+4. 探测失败保持 fail-closed，显示 Error/Unknown，不猜测或自动切换应用。
+
+探测不会发送应用启动/停止命令，也不会发送会被 RunBoard 绘制的合法状态帧；探测帧仅用于
+让静默的 RunBoard 返回协议调试确认。
+Codex 的请求帧会保存在 attach 初始数据中，避免重接管时丢失一次请求。provider
+和 COM 的释放顺序保证关闭后可以重新打开同一串口；旧 bridge 仍不得与 Control 并行运行。
+
+本次没有修改板端、appctl、Flash、rootfs 或启动链。桌面版仍优先读取
+`%LocalAppData%\JZ2440Control\config.json`，并允许 exe 同目录的脱敏
+`JZ2440Control.config.json` 作为本地 fallback；fallback 不进入仓库，也不包含
+服务器或 SSH 凭据。

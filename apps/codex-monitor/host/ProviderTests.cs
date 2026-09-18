@@ -38,6 +38,21 @@ public static class ProviderTests
             if (!ProtocolParser.TryParse(frame, out fields))
                 throw new InvalidOperationException("mock provider frame was not parseable");
         }
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), "jz2440-codex-provider-test-" + Guid.NewGuid().ToString("N"));
+        string installed = Path.Combine(tempRoot, "OpenAI", "Codex", "bin", "test-version", "codex.exe");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(installed));
+            File.WriteAllText(installed, "test");
+            string resolved = RealCodexProvider.ResolveCodexExecutable(null, String.Empty, tempRoot);
+            if (!String.Equals(Path.GetFullPath(installed), resolved, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("user-local Codex installation fallback mismatch");
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, true); } catch { }
+        }
         Console.WriteLine("provider/encoder self-test: PASS");
         return 0;
     }
