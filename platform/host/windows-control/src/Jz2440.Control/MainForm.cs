@@ -22,7 +22,10 @@ namespace Jz2440.Control
             new Dictionary<string, ApplicationCardControl>(StringComparer.Ordinal);
         private readonly CancellationTokenSource lifetime = new CancellationTokenSource();
         private readonly System.Windows.Forms.Timer reconnectTimer = new System.Windows.Forms.Timer();
+        private readonly NotifyIcon trayIcon = new NotifyIcon();
+        private readonly ContextMenuStrip trayMenu = new ContextMenuStrip();
         private bool connectionAttemptInProgress;
+        private bool exitRequested;
 
         public MainForm()
         {
@@ -54,9 +57,55 @@ namespace Jz2440.Control
 
             BuildLayout();
             BuildCards(viewModel.Apps);
+            ConfigureTrayIcon();
             UpdateFromSnapshot(viewModel.Snapshot);
             Shown += MainFormOnShown;
+            FormClosing += MainFormOnClosing;
             FormClosed += MainFormOnClosed;
+        }
+
+        private void ConfigureTrayIcon()
+        {
+            trayIcon.Text = "JZ2440 Control";
+            trayIcon.Icon = SystemIcons.Application;
+            trayIcon.ContextMenuStrip = trayMenu;
+            trayIcon.Visible = true;
+            trayIcon.DoubleClick += delegate { ShowFromTray(); };
+
+            ToolStripMenuItem showItem = new ToolStripMenuItem("Show JZ2440 Control");
+            showItem.Click += delegate { ShowFromTray(); };
+            trayMenu.Items.Add(showItem);
+            trayMenu.Items.Add(new ToolStripSeparator());
+
+            ToolStripMenuItem exitItem = new ToolStripMenuItem("Exit");
+            exitItem.Click += delegate
+            {
+                exitRequested = true;
+                Close();
+            };
+            trayMenu.Items.Add(exitItem);
+        }
+
+        private void ShowFromTray()
+        {
+            if (IsDisposed) return;
+            ShowInTaskbar = true;
+            if (WindowState == FormWindowState.Minimized)
+                WindowState = FormWindowState.Normal;
+            Show();
+            Activate();
+        }
+
+        private void MainFormOnClosing(object sender, FormClosingEventArgs e)
+        {
+            // The title-bar X is a background/detach action. Only the tray
+            // menu Exit command is allowed to release the UART and providers.
+            if (!exitRequested && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                ShowInTaskbar = false;
+                Hide();
+            }
         }
 
         private void BuildLayout()
@@ -332,6 +381,9 @@ namespace Jz2440.Control
         {
             reconnectTimer.Stop();
             reconnectTimer.Dispose();
+            trayIcon.Visible = false;
+            trayIcon.Dispose();
+            trayMenu.Dispose();
             lifetime.Cancel();
             viewModel.Dispose();
             lifetime.Dispose();

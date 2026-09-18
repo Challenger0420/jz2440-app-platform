@@ -333,6 +333,9 @@ Control 关闭是 Windows 侧 detach，不代表用户要求停止板端应用�
 2. 释放 Windows 侧串口句柄；
 3. 不发送 `<CQMQUIT>`、`<RBQUIT>` 或任何 `appctl stop`。
 
+当前桌面 UI 中，标题栏关闭按钮默认将窗口隐藏到 Windows 通知区域，Control
+进程和 provider 继续运行；只有托盘菜单 `Exit` 才执行上述 detach 并释放 UART。
+
 重新启动 Control 时按以下顺序识别：
 
 1. 用 console marker 确认 appctl/Qtopia console；

@@ -462,6 +462,7 @@ Phase 1 MVP 当时不包含 RunBoard 的真实启动、真正的 board-side `APP
 - Qtopia、Codex Monitor、RunBoard 已在同一 Control transport 上完成切换 smoke；CQM1 和 RB1 由活动 provider 分时承载。
 - 旧 `CodexQuotaBridge` / `RunBoardBridge` 保留为 diagnostic/compatibility tools，不能与 Control 并行占用同一 UART。
 - Control 正常关闭时只停止 Windows 侧 provider 并释放 UART，不发送板端应用停止命令，也不改变当前应用。下一次启动先探测 console/Qtopia；若板端仍在运行 Codex Monitor 或 RunBoard，则通过各自协议的只读流量重新识别并恢复 provider，RunBoard 探测不会触发 LCD 绘制。物理断线或异常终止仍保持 fail-closed，不猜测也不自动恢复上一次应用。
+- Windows 窗口右上角关闭按钮默认只隐藏到通知区域，不退出 Control；托盘菜单的 `Exit` 才会停止 Windows provider 并释放 UART。这样 RunBoard 在后台持续获得 RB1 更新，同时仍保留明确的完全退出入口。
 
 ### Phase 6：现场最终验收（已完成）
 
